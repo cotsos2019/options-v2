@@ -1,6 +1,6 @@
 """
 Options Dashboard v2 — Stage 7
-Multi-leg + presets + auto-chart on row click.
+Multi-leg + presets + auto-select first row on load.
 """
 from dash import (
     Dash, html, dcc, callback, ctx,
@@ -262,13 +262,11 @@ def make_multi_leg_chart(spot, legs, symbol):
         x=profit_x, y=profit_y, mode="lines",
         line=dict(color=PROFIT, width=3),
         fill="tozeroy", fillcolor="rgba(46, 204, 113, 0.20)",
-        name="Profit",
     ))
     fig.add_trace(go.Scatter(
         x=loss_x, y=loss_y, mode="lines",
         line=dict(color=LOSS, width=3),
         fill="tozeroy", fillcolor="rgba(231, 76, 60, 0.20)",
-        name="Loss",
     ))
 
     fig.add_hline(y=0, line_dash="dash", line_color=MUTED)
@@ -297,7 +295,6 @@ def make_multi_leg_chart(spot, legs, symbol):
     return fig
 
 
-# ---------- Single-leg preview chart (when nothing added) ----------
 def make_preview_chart(spot, strike, premium, symbol):
     low = min(spot, strike) * 0.85
     high = max(spot, strike) * 1.15
@@ -629,19 +626,22 @@ def on_expiry_click(_):
 @callback(
     Output("chain-grid", "rowData", allow_duplicate=True),
     Output("row-count", "children", allow_duplicate=True),
+    Output("chain-grid", "selectedRows", allow_duplicate=True),
     Input("tick", "n_intervals"),
     Input("symbol-store", "data"),
     Input("expiry-store", "data"),
     State("expiry-list", "data"),
+    State("chain-grid", "rowData"),
+    State("chain-grid", "selectedRows"),
     prevent_initial_call=True,
 )
-def refresh(_, symbol, expiry, expiry_list):
+def refresh(_, symbol, expiry, expiry_list, current_data, current_selected):
     if not symbol or not expiry or not expiry_list:
-        return [], "Loading…"
+        return [], "Loading…", no_update
 
     valid_labels = {str(label) for _, label in expiry_list}
     if str(expiry) not in valid_labels:
-        return [], "Loading…"
+        return [], "Loading…", no_update
 
     try:
         if symbol in CRYPTO_SYMBOLS:
@@ -650,9 +650,15 @@ def refresh(_, symbol, expiry, expiry_list):
             rows = get_stock_chain(symbol, expiry, 30)
     except Exception as e:
         print(f"[refresh] error: {e}")
-        return [], "error"
+        return [], "error", no_update
 
-    return rows, f"{len(rows)} contracts"
+    # Auto-select the first row when nothing is selected yet
+    if not current_selected and rows:
+        selected = [rows[0]]
+    else:
+        selected = current_selected or []
+
+    return rows, f"{len(rows)} contracts", selected
 
 
 @callback(
@@ -884,7 +890,6 @@ def render_legs(legs):
     return items
 
 
-# ---------- Chart: multi-leg OR preview ----------
 @callback(
     Output("chart", "figure"),
     Input("legs-store", "data"),
@@ -903,11 +908,9 @@ def update_chart(legs, selected, symbol):
     if spot is None:
         spot = 100
 
-    # If we have legs → show the multi-leg strategy
     if legs:
         return make_multi_leg_chart(spot, legs, symbol)
 
-    # Otherwise → show preview of the selected row
     if selected:
         row = selected[0]
         strike = row.get("strike", 0)
@@ -915,7 +918,6 @@ def update_chart(legs, selected, symbol):
         if strike:
             return make_preview_chart(spot, strike, premium, symbol)
 
-    # Nothing to show
     fig = go.Figure()
     fig.update_layout(
         paper_bgcolor=PANEL, plot_bgcolor=PANEL, font=dict(color=TEXT),
