@@ -1,6 +1,6 @@
 """
-Options Dashboard v2 — Stage 6
-Multi-leg + underlying + presets.
+Options Dashboard v2 — Stage 7
+Multi-leg + presets + auto-chart on row click.
 """
 from dash import (
     Dash, html, dcc, callback, ctx,
@@ -107,7 +107,6 @@ def get_crypto_chain(currency, expiry_label, limit=30):
             "oi": item.get("open_interest"),
         })
 
-    print(f"[crypto] {currency} {expiry_label}: {len(rows)} rows")
     return rows
 
 
@@ -133,7 +132,6 @@ def get_stock_expiries(symbol):
     try:
         t = _get_stock_ticker(symbol)
         expiries = list(t.options)
-        print(f"[stocks] {symbol} expiries: {len(expiries)}")
         return [(e, e) for e in expiries[:8]]
     except Exception as e:
         print(f"[stocks] expiries error {symbol}: {e}")
@@ -165,7 +163,6 @@ def get_stock_chain(symbol, expiry, max_strikes=30):
     try:
         t = _get_stock_ticker(symbol)
         chain = t.option_chain(expiry)
-        print(f"[stocks] {symbol} {expiry}: calls={len(chain.calls)} puts={len(chain.puts)}")
     except Exception as e:
         print(f"[stocks] chain error {symbol} {expiry}: {e}")
         return []
@@ -284,10 +281,73 @@ def make_multi_leg_chart(spot, legs, symbol):
                   annotation_position="bottom left",
                   annotation_font=dict(color=SPOT, size=11))
 
-    title = f"<b>Strategy — {symbol}</b> ({len(legs)} legs)"
+    fig.update_layout(
+        title=dict(text=f"<b>Strategy — {symbol}</b> ({len(legs)} legs)",
+                   font=dict(color=TEXT, size=16), x=0.02),
+        xaxis=dict(title=dict(text=f"{symbol} Price at Expiry", font=dict(color=TEXT)),
+                   tickfont=dict(color=MUTED), gridcolor=BORDER, zerolinecolor=BORDER),
+        yaxis=dict(title=dict(text="Profit / Loss ($)", font=dict(color=TEXT)),
+                   tickfont=dict(color=MUTED), gridcolor=BORDER, zerolinecolor=BORDER),
+        paper_bgcolor=PANEL, plot_bgcolor=PANEL,
+        font=dict(color=TEXT),
+        hovermode="x unified",
+        margin=dict(l=60, r=30, t=80, b=50),
+        showlegend=False,
+    )
+    return fig
+
+
+# ---------- Single-leg preview chart (when nothing added) ----------
+def make_preview_chart(spot, strike, premium, symbol):
+    low = min(spot, strike) * 0.85
+    high = max(spot, strike) * 1.15
+    step = (high - low) / 60
+    prices = [low + i * step for i in range(61)]
+
+    payoffs = []
+    for p in prices:
+        if p <= strike:
+            payoff = (p - spot) + premium
+        else:
+            payoff = (strike - spot) + premium
+        payoffs.append(payoff)
+
+    fig = go.Figure()
+
+    profit_x, profit_y = [], []
+    loss_x, loss_y = [], []
+    for x, y in zip(prices, payoffs):
+        if y >= 0:
+            profit_x.append(x)
+            profit_y.append(y)
+        else:
+            loss_x.append(x)
+            loss_y.append(y)
+
+    fig.add_trace(go.Scatter(
+        x=profit_x, y=profit_y, mode="lines",
+        line=dict(color=PROFIT, width=3),
+        fill="tozeroy", fillcolor="rgba(46, 204, 113, 0.20)",
+    ))
+    fig.add_trace(go.Scatter(
+        x=loss_x, y=loss_y, mode="lines",
+        line=dict(color=LOSS, width=3),
+        fill="tozeroy", fillcolor="rgba(231, 76, 60, 0.20)",
+    ))
+
+    fig.add_hline(y=0, line_dash="dash", line_color=MUTED)
+    fig.add_vline(x=strike, line_dash="dot", line_color=STRIKE,
+                  annotation_text=f"Strike {strike}", annotation_position="top right",
+                  annotation_font=dict(color=STRIKE, size=12))
+    fig.add_vline(x=spot, line_dash="dot", line_color=SPOT,
+                  annotation_text=f"Spot {round(spot, 2)}", annotation_position="bottom left",
+                  annotation_font=dict(color=SPOT, size=11))
 
     fig.update_layout(
-        title=dict(text=title, font=dict(color=TEXT, size=16), x=0.02),
+        title=dict(text=f"<b>Covered Call Preview — {symbol}</b><br>"
+                        f"<span style='font-size:12px;color:{MUTED}'>"
+                        f"Buy at {round(spot, 2)} | Sell {strike} Call for {round(premium, 4)}</span>",
+                   font=dict(color=TEXT, size=16), x=0.02),
         xaxis=dict(title=dict(text=f"{symbol} Price at Expiry", font=dict(color=TEXT)),
                    tickfont=dict(color=MUTED), gridcolor=BORDER, zerolinecolor=BORDER),
         yaxis=dict(title=dict(text="Profit / Loss ($)", font=dict(color=TEXT)),
@@ -303,7 +363,6 @@ def make_multi_leg_chart(spot, legs, symbol):
 
 app = Dash(__name__)
 server = app.server
-
 
 
 app.layout = html.Div([
@@ -326,7 +385,6 @@ app.layout = html.Div([
         html.Div(id="expiry-buttons", style={"display": "inline-block"}),
     ], style={"display": "flex", "alignItems": "center", "padding": "12px 24px"}),
 
-    # Preset row
     html.Div([
         html.Span("Presets:",
                   style={"marginRight": "12px", "fontSize": "13px", "fontWeight": "600"}),
@@ -354,7 +412,6 @@ app.layout = html.Div([
               "padding": "0 24px 12px 24px"}),
 
     html.Div([
-        # LEFT
         html.Div([
             html.Div([
                 html.Span("Options Chain",
@@ -424,7 +481,7 @@ app.layout = html.Div([
                                        "cursor": "pointer"}),
                 ], style={"marginBottom": "8px"}),
                 html.Div(id="legs-list",
-                         children=html.Span("No legs yet",
+                         children=html.Span("No legs yet — click a row for preview",
                                             style={"fontSize": "12px", "color": MUTED})),
             ], style={
                 "padding": "12px 16px",
@@ -440,7 +497,6 @@ app.layout = html.Div([
             "overflow": "hidden",
         }),
 
-        # RIGHT
         html.Div([
             dcc.Graph(id="chart", style={"height": "calc(100vh - 240px)"},
                       config={"displayModeBar": False}),
@@ -528,7 +584,6 @@ def load_expiries_for_symbol(symbol):
         print(f"[expiries] Failed: {e}")
         return [], None
 
-    print(f"[expiries] {symbol}: default={default}")
     return data, default
 
 
@@ -600,7 +655,6 @@ def refresh(_, symbol, expiry, expiry_list):
     return rows, f"{len(rows)} contracts"
 
 
-# ---------- Add leg (long) ----------
 @callback(
     Output("legs-store", "data", allow_duplicate=True),
     Input("add-long-btn", "n_clicks"),
@@ -623,7 +677,6 @@ def add_long(n, selected, legs):
     return legs + [leg]
 
 
-# ---------- Add leg (short) ----------
 @callback(
     Output("legs-store", "data", allow_duplicate=True),
     Input("add-short-btn", "n_clicks"),
@@ -646,7 +699,6 @@ def add_short(n, selected, legs):
     return legs + [leg]
 
 
-# ---------- Add underlying ----------
 @callback(
     Output("legs-store", "data", allow_duplicate=True),
     Input("add-underlying-btn", "n_clicks"),
@@ -668,7 +720,6 @@ def add_underlying(n, symbol, legs):
     return legs + [leg]
 
 
-# ---------- Clear legs ----------
 @callback(
     Output("legs-store", "data", allow_duplicate=True),
     Input("clear-legs-btn", "n_clicks"),
@@ -680,7 +731,6 @@ def clear_legs(n):
     return no_update
 
 
-# ---------- Presets ----------
 @callback(
     Output("legs-store", "data", allow_duplicate=True),
     Input("preset-cc", "n_clicks"),
@@ -696,7 +746,6 @@ def preset_covered_call(n, symbol, rows):
     if spot is None:
         return no_update
 
-    # Pick nearest OTM call
     calls = [r for r in rows if r["type"] == "call" and r["strike"] > spot]
     calls.sort(key=lambda r: r["strike"])
     if not calls:
@@ -808,14 +857,13 @@ def preset_straddle(n, symbol, rows):
     ]
 
 
-# ---------- Render legs list ----------
 @callback(
     Output("legs-list", "children"),
     Input("legs-store", "data"),
 )
 def render_legs(legs):
     if not legs:
-        return html.Span("No legs yet",
+        return html.Span("No legs yet — click a row for preview",
                          style={"fontSize": "12px", "color": MUTED})
 
     items = []
@@ -836,27 +884,15 @@ def render_legs(legs):
     return items
 
 
-@callback(
-    Output("chain-grid", "selectedRows", allow_duplicate=True),
-    Input("chain-grid", "rowData"),
-    State("chain-grid", "selectedRows"),
-    prevent_initial_call=True,
-)
-def auto_select(row_data, current):
-    if current:
-        return current
-    if not row_data:
-        return []
-    return [row_data[0]]
-
-
+# ---------- Chart: multi-leg OR preview ----------
 @callback(
     Output("chart", "figure"),
     Input("legs-store", "data"),
+    Input("chain-grid", "selectedRows"),
     State("symbol-store", "data"),
     prevent_initial_call=False,
 )
-def update_chart(legs, symbol):
+def update_chart(legs, selected, symbol):
     symbol = symbol or "BTC"
 
     if symbol in CRYPTO_SYMBOLS:
@@ -867,7 +903,27 @@ def update_chart(legs, symbol):
     if spot is None:
         spot = 100
 
-    return make_multi_leg_chart(spot, legs or [], symbol)
+    # If we have legs → show the multi-leg strategy
+    if legs:
+        return make_multi_leg_chart(spot, legs, symbol)
+
+    # Otherwise → show preview of the selected row
+    if selected:
+        row = selected[0]
+        strike = row.get("strike", 0)
+        premium = row.get("bid") or 0
+        if strike:
+            return make_preview_chart(spot, strike, premium, symbol)
+
+    # Nothing to show
+    fig = go.Figure()
+    fig.update_layout(
+        paper_bgcolor=PANEL, plot_bgcolor=PANEL, font=dict(color=TEXT),
+        annotations=[dict(text="Loading…",
+                          x=0.5, y=0.5, xref="paper", yref="paper",
+                          showarrow=False, font=dict(color=MUTED, size=14))],
+    )
+    return fig
 
 
 if __name__ == "__main__":
