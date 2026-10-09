@@ -1,0 +1,8 @@
+dash
+plotly
+dash-ag-grid
+requests
+urllib3
+yfinance
+curl_cffi
+gunicorn
