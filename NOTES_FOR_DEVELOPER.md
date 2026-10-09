@@ -3,11 +3,13 @@
 ## Project: Options Dashboard v2
 
 ### Τι είναι
-Dash web app που δείχνει live options data (crypto από Deribit, stocks από yfinance) με multi-leg strategy builder και interactive Plotly charts.
+Dash web app που δείχνει live options data (crypto από Deribit, stocks από yfinance) με multi-leg strategy builder, capital/probability analysis, και interactive Plotly charts.
 
 ### Live URL
 https://options-v2.onrender.com (Render.com free tier)
-Τοπικό: http://127.0.0.1:8051
+
+### Τοπικό URL
+http://127.0.0.1:8051
 
 ### GitHub
 https://github.com/user5461/options-v2
@@ -40,14 +42,14 @@ gunicorn
 
 ## Δομή αρχείων
 options-v2/
-- app.py               # ΟΛΟΣ ο κώδικας εδώ (single-file app)
+- app.py                    # ΟΛΟΣ ο κώδικας (single-file app)
 - requirements.txt
-- Procfile             # "web: gunicorn app:server"
-- runtime.txt          # "python-3.12.3"
+- Procfile                  # "web: gunicorn app:server"
+- runtime.txt               # "python-3.12.3"
 - .gitignore
-- NOTES_FOR_AI.md      # αυτό
-- START_HERE.md        # οδηγίες για τον χρήστη
-- .venv/               # τοπικό virtualenv
+- NOTES_FOR_DEVELOPER.md    # αυτό
+- START_HERE.md             # οδηγίες για τον χρήστη
+- .venv/                    # τοπικό virtualenv
 
 ---
 
@@ -56,12 +58,12 @@ options-v2/
 ### Crypto (Live)
 - Deribit — https://www.deribit.com/api/v2
 - Endpoints:
-  - /public/get_instruments?currency=BTC&kind=option&expired=false — λίστα instruments
-  - /public/get_book_summary_by_currency?currency=BTC&kind=option — bulk tickers (γρήγορο)
-  - /public/get_index_price?index_name=btc_usd — spot price
+  - /public/get_instruments?currency=BTC&kind=option&expired=false
+  - /public/get_book_summary_by_currency?currency=BTC&kind=option
+  - /public/get_index_price?index_name=btc_usd
 - ΚΡΙΣΙΜΟ: Τα bid_price/ask_price από το book summary είναι σε BTC, όχι USD. Πολλαπλασιάζονται με το spot για να γίνουν USD.
 - ΚΡΙΣΙΜΟ: Instrument name format: BTC-10OCT26-75000-C. Το expiry label εξάγεται από το parts[1].
-- ΚΡΙΣΙΜΟ: Το /get_instruments δίνει expiration_timestamp (ms), αλλά το book summary ΔΕΝ το δίνει. Φιλτράρουμε το book summary με string match στο instrument name (-10OCT26-).
+- ΚΡΙΣΙΜΟ: Το /get_instruments δίνει expiration_timestamp (ms), αλλά το book summary ΔΕΝ το δίνει. Φιλτράρουμε με string match στο instrument name (-10OCT26-).
 
 ### Stocks (Delayed ~15 min)
 - yfinance (Yahoo Finance)
@@ -73,34 +75,46 @@ options-v2/
 
 ---
 
+## Contract sizes (ΣΗΜΑΝΤΙΚΟ)
+- Crypto (BTC, ETH): 1 option = 1 BTC/ETH
+- Stocks (AAPL, SPY, TSLA, NVDA, MSFT, QQQ): 1 option = 100 shares
+
+---
+
 ## Architecture
 
 ### Stores (Dash state)
-- symbol-store: "BTC" / "ETH" / "AAPL" / "SPY" / "TSLA"
+- symbol-store: "BTC" / "ETH" / "AAPL" / "SPY" / "TSLA" / "NVDA" / "MSFT" / "QQQ"
 - expiry-store: Ενεργό expiry label
-- expiry-list: Λίστα με όλα τα expiries
+- expiry-list: Λίστα με όλα τα expiries (max 12)
 - legs-store: Legs της στρατηγικής
 - filter-store: "all" / "call" / "put"
 - rows-store: Όλα τα rows πριν το filter
+- theme-store: "dark" / "light"
+- lang-store: "el" / "en"
+- about-open, analysis-open: booleans για modals
 
 ### Leg format
 {
-    "side": 1,
-    "type": "call",
+    "side": 1,       # 1=long, -1=short
+    "type": "call",  # "call", "put", "underlying"
     "strike": 75000,
     "premium": 1234.56,
     "instrument": "BTC-10OCT26-75000-C"
 }
 
-### Row format
+### Row format (chain)
 {
     "instrument": "BTC-10OCT26-75000-C",
     "type": "call",
     "strike": 75000.0,
-    "bid": 1234.56,
+    "bid": 1234.56,           # σε USD
     "ask": 1300.00,
+    "premium": 1267.28,       # mid = (bid+ask)/2
+    "capital": 1300.00,       # ask (1 contract, 1 BTC ή 100 shares)
+    "prob_itm": 0.47,         # Black-Scholes N(d2)
     "iv": 55.2,
-    "delta": None,
+    "volume": 12,
     "oi": 123
 }
 
@@ -113,61 +127,92 @@ In-memory dict _cache με TTL:
 - Stock chain: 120s
 - Stock spot: 60s
 
+### Black-Scholes
+Χρησιμοποιείται για Prob ITM: N(d2) για calls, N(-d2) για puts.
+r = 0.045 (approximate risk-free rate)
+
+### T = time to expiry
+- Για stocks: parsed από ISO date
+- Για crypto: parsed από Deribit label (π.χ. 10OCT26)
+
+---
+
+## Features
+
+### 1. Grid (αριστερά, 63% πλάτος)
+Στήλες: Instrument, Type, Strike, Bid, Ask, Premium, Capital, Prob ITM, IV, Vol, OI
+- Calls: πράσινα, Puts: κόκκινα
+- Highlight: πράσινο/κόκκινο background ανάλογα με type
+
+### 2. Chart (δεξιά, 37% πλάτος)
+- Preview chart όταν κλικάρεις γραμμή
+- Multi-leg payoff όταν έχεις legs
+
+### 3. Presets (auto από spot)
+- Covered Call — long underlying + short OTM call
+- Call Spread — long call + short higher call
+- Iron Condor — 4 legs γύρω από spot
+- Straddle — long call + long put στο spot
+- ΔΕΝ χρησιμοποιούν την επιλογή σου — χτίζονται αυτόματα με βάση το spot.
+
+### 4. Manual (LONG / SHORT buttons)
+- Χρησιμοποιούν τη γραμμή που διάλεξες στο grid.
+- Πάτα + LONG ή + SHORT για να προσθέσεις leg.
+
+### 5. Modals
+- ❓ Οδηγός Στρατηγικών (γενικές εξηγήσεις)
+- 📊 Ανάλυση Στρατηγικής:
+  - Τα legs σου
+  - ⚙️ Εντολές Εκτέλεσης (BUY/SELL)
+  - Απαιτούμενο Κεφάλαιο
+  - ⚠️ Προειδοποιήσεις (Covered Call: downside/upside)
+  - Σύνοψη: Net cost, Max profit, Max loss
+  - Break-even points
+  - Chart
+  - 6 Σενάρια με πραγματικά νούμερα
+
+### 6. Theme toggle ☀️ / 🌙
+Dark mode (default) και Light mode.
+
+### 7. Language toggle 🇬🇷 / 🇬🇧
+Ελληνικά (default) και Αγγλικά. Όλα τα labels αλλάζουν.
+
 ---
 
 ## UI / Theme
-Dark mode only
-
-Χρώματα:
+Dark mode default
 - BG: #0e1117
 - Panel: #161b22
 - Border: #30363d
 - Text: #e6edf3
-- Muted: #8b949e
 - Calls/Profit: #2ecc71
 - Puts/Loss: #e74c3c
 - Strike: #f39c12
 - Spot: #58a6ff
 - Accent: #1f6feb
-- Short/Red: #da3633
+
+Layout:
+- grid-template-columns: 1.9fr 1.1fr (grid 63%, chart 37%)
+- @media (max-width: 1200px) → stacked
 
 ---
 
 ## Γνωστά Gotchas
 
-1. Dash "Duplicate Output" error
-   Αν δύο callbacks γράφουν στο ίδιο property, πρέπει allow_duplicate=True.
-
+1. Dash "Duplicate Output" error → allow_duplicate=True
 2. Αριθμός outputs = αριθμός return values
-   Αν έχεις 3 Outputs, return 3 τιμές.
-
-3. ALL as dash_all import
-   Πρέπει να είναι στην αρχή του αρχείου.
-
-4. Deribit prices
-   Σε BTC. Πολλαπλασιασμός με spot.
-
-5. yfinance rate limit
-   Ένα shared session. Cache.
-
-6. expiry-store validation
-   Πριν φιλτράρεις τα rows, έλεγξε αν το expiry label είναι valid για το τρέχον symbol.
-
-7. Δύο formats
-   Crypto: 10OCT26
-   Stocks: 2026-10-16
-
-8. Render free tier
-   Sleeps after 15 min, 30-60s wake up.
-
-9. Local port
-   8051. Στο Render: PORT env variable.
+3. ALL as dash_all import στην αρχή
+4. Deribit prices σε BTC → *spot για USD
+5. yfinance: shared session + cache
+6. expiry-store validation πριν φιλτράρεις
+7. Δύο formats: 10OCT26 (crypto), 2026-10-16 (stocks)
+8. Render free tier: sleep, 30-60s wake up
+9. Local port: 8051, Render: PORT env var
+10. Contract sizes: crypto=1, stocks=100
 
 ---
 
-## Ιστορικό
-Ξεκίνησε ως options-app (παλιό). Ξαναγράφτηκε ως options-v2.
-
+## Ιστορικό Stages
 - Stage 1: BTC μόνο, REST API
 - Stage 2: + ETH
 - Stage 3: + Greeks (αφαιρέθηκαν)
@@ -176,23 +221,26 @@ Dark mode only
 - Stage 6: + Presets + Underlying leg
 - Stage 7: Deploy στο Render
 - Stage 8: + Filters (All/Calls/Puts) + χρωματισμός
-- Stage 9: Μετατροπή crypto prices σε USD
-
-Μάθημα: Χτίσε ένα feature τη φορά.
+- Stage 9: Crypto prices σε USD
+- Stage 10: + Volume, νέα symbols (NVDA, MSFT, QQQ), Light mode, responsive
+- Stage 11: + Όμορφα buttons (icons, gradients)
+- Stage 12: + 12 expiries, δίγλωσσο UI, preset guide
+- Stage 13: + Strategy Analysis με πραγματικά νούμερα
+- Stage 14: + Ξεχωριστό 📊 κουμπί
+- Stage 15: + Hints (auto vs manual)
+- Stage 16: + Premium/BE/5 P&L scenarios (αφαιρέθηκε)
+- Stage 17A: + Capital Required, Prob ITM, Execution Instructions, Warnings
+- Stage 18: Wider grid (63%), narrower chart (37%)
 
 ---
 
 ## Τι θα μπορούσε να προστεθεί
-- Greeks στο grid για crypto
-- Volume στήλη
-- Save/load strategies
-- Άλλα symbols (NVDA, MSFT, QQQ)
-- Light mode
-- Mobile responsive
-- IV chart per strike
-- Black-Scholes Greeks για stocks
-- WebSocket αντί για polling
+- Greeks (delta, gamma, theta, vega) — επόμενο
+- Save/load strategies (SQLite)
+- IV chart per strike (volatility smile)
+- WebSocket αντί για REST polling
 - Backtesting
+- Mobile UI βελτιώσεις
 
 ---
 
@@ -211,15 +259,22 @@ Render auto-deploys σε 2-3 λεπτά
 ## Πώς να κάνεις rollback
 git log --oneline
 git checkout <hash>
-ή
-git revert HEAD
-git push
 
 ---
 
-## Τελευταία κατάσταση
-- ✅ BTC, ETH, AAPL, SPY, TSLA
-- ✅ Expiry selector, filters, multi-leg, presets
+## Τελευταία κατάσταση (checkpoint)
+- ✅ BTC, ETH, AAPL, SPY, TSLA, NVDA, MSFT, QQQ
+- ✅ Expiry selector (12 expiries)
+- ✅ Filters (All/Calls/Puts) με χρωματισμό
+- ✅ Multi-leg builder
+- ✅ Presets (Covered Call, Call Spread, Iron Condor, Straddle)
 - ✅ Auto-select πρώτης γραμμής
+- ✅ Capital Required, Prob ITM, Premium
+- ✅ Execution Instructions + Warnings
+- ✅ Bilingual (EL/EN)
+- ✅ Dark/Light mode
+- ✅ Responsive (stacked < 1200px)
 - ✅ Deployed στο Render
-- ✅ Crypto bid/ask σε USD
+- ✅ Wide grid (63%), narrow chart (37%)
+
+**Επόμενο:** Greeks (delta, gamma, theta, vega)
