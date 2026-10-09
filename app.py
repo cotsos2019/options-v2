@@ -1,6 +1,6 @@
 """
-Options Dashboard v2 — Stage 7
-With in-memory caching to avoid re-fetching.
+Options Dashboard v2 — Stage 8
+Crypto prices converted to USD. Tabs + colored Calls/Puts.
 """
 from dash import (
     Dash, html, dcc, callback, ctx,
@@ -31,17 +31,18 @@ SPOT = "#58a6ff"
 ACCENT = "#1f6feb"
 RED = "#da3633"
 
+CALL_COLOR = "#2ecc71"
+PUT_COLOR = "#e74c3c"
+
 CRYPTO_SYMBOLS = {"BTC", "ETH"}
 
 _stock_session = curl_requests.Session(impersonate="chrome")
 _stock_session.verify = False
 
 
-# ============================================================
-# IN-MEMORY CACHE (5 min TTL) — cuts Render latency drastically
-# ============================================================
+# ---------- Cache ----------
 _cache = {}
-CACHE_TTL = 300  # 5 minutes
+CACHE_TTL = 300
 
 
 def cache_get(key):
@@ -66,7 +67,7 @@ def http_get(url, params=None, timeout=15):
         return requests.get(url, params=params, timeout=timeout, verify=False)
 
 
-# ---------- Crypto: Deribit ----------
+# ---------- Crypto ----------
 def get_crypto_expiries(currency="BTC"):
     key = f"expiries:{currency}"
     cached = cache_get(key)
@@ -114,7 +115,8 @@ def get_crypto_chain(currency, expiry_label, limit=30):
             return 0
 
     matched.sort(key=strike_of)
-    spot = get_crypto_spot(currency)
+    spot = get_crypto_spot(currency) or 1.0
+
     if spot:
         matched.sort(key=lambda i: abs(strike_of(i) - spot))
         matched = matched[:limit]
@@ -130,18 +132,29 @@ def get_crypto_chain(currency, expiry_label, limit=30):
         except (IndexError, ValueError):
             continue
 
+        # Deribit gives prices in BTC. Convert to USD.
+        bid_btc = item.get("bid_price")
+        ask_btc = item.get("ask_price")
+
+        bid_usd = None
+        ask_usd = None
+        if bid_btc is not None and spot:
+            bid_usd = round(float(bid_btc) * spot, 2)
+        if ask_btc is not None and spot:
+            ask_usd = round(float(ask_btc) * spot, 2)
+
         rows.append({
             "instrument": name,
             "type": opt_type,
             "strike": strike,
-            "bid": item.get("bid_price"),
-            "ask": item.get("ask_price"),
+            "bid": bid_usd,
+            "ask": ask_usd,
             "iv": item.get("mark_iv"),
             "delta": None,
             "oi": item.get("open_interest"),
         })
 
-    cache_set(key, rows, ttl=60)  # 1 min for live data
+    cache_set(key, rows, ttl=60)
     return rows
 
 
@@ -150,7 +163,6 @@ def get_crypto_spot(currency="BTC"):
     cached = cache_get(key)
     if cached is not None:
         return cached
-
     try:
         index_name = f"{currency.lower()}_usd"
         r = http_get(
@@ -165,7 +177,7 @@ def get_crypto_spot(currency="BTC"):
         return None
 
 
-# ---------- Stocks: yfinance ----------
+# ---------- Stocks ----------
 def _get_stock_ticker(symbol):
     return yf.Ticker(symbol, session=_stock_session)
 
@@ -175,7 +187,6 @@ def get_stock_expiries(symbol):
     cached = cache_get(key)
     if cached is not None:
         return cached
-
     try:
         t = _get_stock_ticker(symbol)
         expiries = list(t.options)
@@ -192,7 +203,6 @@ def get_stock_spot(symbol):
     cached = cache_get(key)
     if cached is not None:
         return cached
-
     try:
         t = _get_stock_ticker(symbol)
         price = float(t.fast_info["last_price"])
@@ -220,7 +230,6 @@ def get_stock_chain(symbol, expiry, max_strikes=30):
     cached = cache_get(key)
     if cached is not None:
         return cached
-
     try:
         t = _get_stock_ticker(symbol)
         chain = t.option_chain(expiry)
@@ -230,7 +239,6 @@ def get_stock_chain(symbol, expiry, max_strikes=30):
 
     spot = get_stock_spot(symbol) or 0
     rows = []
-
     for _, r in chain.calls.iterrows():
         rows.append(_stock_row(r, symbol, expiry, "call"))
     for _, r in chain.puts.iterrows():
@@ -239,7 +247,6 @@ def get_stock_chain(symbol, expiry, max_strikes=30):
     rows.sort(key=lambda x: abs(x["strike"] - spot))
     rows = rows[:max_strikes]
     rows.sort(key=lambda x: (x["strike"], 0 if x["type"] == "call" else 1))
-
     cache_set(key, rows, ttl=120)
     return rows
 
@@ -261,7 +268,6 @@ def _stock_row(r, symbol, expiry, opt_type):
         iv = iv * 100
 
     suffix = "C" if opt_type == "call" else "P"
-
     return {
         "instrument": f"{symbol}-{expiry}-{strike}-{suffix}",
         "type": opt_type,
@@ -293,6 +299,8 @@ def make_multi_leg_chart(spot, legs, symbol):
     step = (high - low) / 60
     prices = [low + i * step for i in range(61)]
 
+    # For crypto, premium is in USD (already converted), spot is in USD.
+    # For stocks, same. Good.
     total = []
     for p in prices:
         pnl = 0.0
@@ -310,16 +318,13 @@ def make_multi_leg_chart(spot, legs, symbol):
         total.append(pnl)
 
     fig = go.Figure()
-
     profit_x, profit_y = [], []
     loss_x, loss_y = [], []
     for x, y in zip(prices, total):
         if y >= 0:
-            profit_x.append(x)
-            profit_y.append(y)
+            profit_x.append(x); profit_y.append(y)
         else:
-            loss_x.append(x)
-            loss_y.append(y)
+            loss_x.append(x); loss_y.append(y)
 
     fig.add_trace(go.Scatter(
         x=profit_x, y=profit_y, mode="lines",
@@ -373,16 +378,13 @@ def make_preview_chart(spot, strike, premium, symbol):
         payoffs.append(payoff)
 
     fig = go.Figure()
-
     profit_x, profit_y = [], []
     loss_x, loss_y = [], []
     for x, y in zip(prices, payoffs):
         if y >= 0:
-            profit_x.append(x)
-            profit_y.append(y)
+            profit_x.append(x); profit_y.append(y)
         else:
-            loss_x.append(x)
-            loss_y.append(y)
+            loss_x.append(x); loss_y.append(y)
 
     fig.add_trace(go.Scatter(
         x=profit_x, y=profit_y, mode="lines",
@@ -406,7 +408,7 @@ def make_preview_chart(spot, strike, premium, symbol):
     fig.update_layout(
         title=dict(text=f"<b>Covered Call Preview — {symbol}</b><br>"
                         f"<span style='font-size:12px;color:{MUTED}'>"
-                        f"Buy at {round(spot, 2)} | Sell {strike} Call for {round(premium, 4)}</span>",
+                        f"Buy at {round(spot, 2)} | Sell {strike} Call for {round(premium, 2)}</span>",
                    font=dict(color=TEXT, size=16), x=0.02),
         xaxis=dict(title=dict(text=f"{symbol} Price at Expiry", font=dict(color=TEXT)),
                    tickfont=dict(color=MUTED), gridcolor=BORDER, zerolinecolor=BORDER),
@@ -429,7 +431,7 @@ app.layout = html.Div([
     html.Div([
         html.H1("Options Dashboard v2",
                 style={"margin": "0", "fontSize": "22px", "fontWeight": "600"}),
-        html.P("Multi-leg strategy builder with presets",
+        html.P("Multi-leg strategy builder — prices in USD",
                style={"margin": "4px 0 0 0", "fontSize": "12px", "color": MUTED}),
     ], style={"padding": "16px 24px", "borderBottom": f"1px solid {BORDER}"}),
 
@@ -478,6 +480,31 @@ app.layout = html.Div([
                           style={"fontWeight": "600", "fontSize": "14px"}),
                 html.Span(id="row-count",
                           style={"fontSize": "12px", "marginLeft": "8px", "color": MUTED}),
+
+                html.Div([
+                    html.Button("All", id={"type": "filter-btn", "value": "all"}, n_clicks=0,
+                                style={"padding": "5px 12px", "marginLeft": "16px",
+                                       "borderRadius": "5px",
+                                       "border": f"1px solid {BORDER}",
+                                       "background": ACCENT, "color": "#ffffff",
+                                       "fontSize": "11px", "cursor": "pointer",
+                                       "fontWeight": "600"}),
+                    html.Button("Calls", id={"type": "filter-btn", "value": "call"}, n_clicks=0,
+                                style={"padding": "5px 12px", "marginLeft": "4px",
+                                       "borderRadius": "5px",
+                                       "border": f"1px solid {BORDER}",
+                                       "background": "#21262d", "color": CALL_COLOR,
+                                       "fontSize": "11px", "cursor": "pointer",
+                                       "fontWeight": "600"}),
+                    html.Button("Puts", id={"type": "filter-btn", "value": "put"}, n_clicks=0,
+                                style={"padding": "5px 12px", "marginLeft": "4px",
+                                       "borderRadius": "5px",
+                                       "border": f"1px solid {BORDER}",
+                                       "background": "#21262d", "color": PUT_COLOR,
+                                       "fontSize": "11px", "cursor": "pointer",
+                                       "fontWeight": "600"}),
+                ], style={"display": "inline-block"}),
+
                 html.Div([
                     html.Button("+ LONG", id="add-long-btn", n_clicks=0,
                                 style={"padding": "5px 10px", "marginLeft": "12px",
@@ -500,7 +527,8 @@ app.layout = html.Div([
                 id="chain-grid",
                 columnDefs=[
                     {"field": "instrument", "headerName": "Instrument", "flex": 2},
-                    {"field": "type", "headerName": "Type", "flex": 1},
+                    {"field": "type", "headerName": "Type", "flex": 1,
+                     "cellStyle": {"function": "params.value === 'call' ? {color: '#2ecc71', fontWeight: 600} : {color: '#e74c3c', fontWeight: 600}"}},
                     {"field": "strike", "headerName": "Strike", "flex": 1,
                      "valueFormatter": {"function": "params.value ? '$' + params.value.toLocaleString() : ''"}},
                     {"field": "bid", "headerName": "Bid", "flex": 1,
@@ -518,6 +546,7 @@ app.layout = html.Div([
                     "rowSelection": "single",
                     "animateRows": False,
                     "suppressCellFocus": True,
+                    "getRowStyle": {"function": "params.data && params.data.type === 'call' ? {background: 'rgba(46, 204, 113, 0.06)'} : (params.data && params.data.type === 'put' ? {background: 'rgba(231, 76, 60, 0.06)'} : null)"},
                 },
             ),
 
@@ -578,6 +607,8 @@ app.layout = html.Div([
     dcc.Store(id="expiry-store", data=None),
     dcc.Store(id="expiry-list", data=[]),
     dcc.Store(id="legs-store", data=[]),
+    dcc.Store(id="filter-store", data="all"),
+    dcc.Store(id="rows-store", data=[]),
 ], style={
     "minHeight": "100vh",
     "fontFamily": "Inter, -apple-system, Segoe UI, sans-serif",
@@ -622,6 +653,17 @@ def on_symbol_click(_):
 
 
 @callback(
+    Output("filter-store", "data"),
+    Input({"type": "filter-btn", "value": dash_all}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def on_filter_click(_):
+    if not ctx.triggered_id:
+        return no_update
+    return ctx.triggered_id["value"]
+
+
+@callback(
     Output("expiry-list", "data"),
     Output("expiry-store", "data", allow_duplicate=True),
     Input("symbol-store", "data"),
@@ -630,7 +672,6 @@ def on_symbol_click(_):
 def load_expiries_for_symbol(symbol):
     if not symbol:
         return [], None
-
     try:
         if symbol in CRYPTO_SYMBOLS:
             expiries = get_crypto_expiries(currency=symbol)
@@ -643,7 +684,6 @@ def load_expiries_for_symbol(symbol):
     except Exception as e:
         print(f"[expiries] Failed: {e}")
         return [], None
-
     return data, default
 
 
@@ -656,7 +696,6 @@ def render_expiry_buttons(expiry_list, active):
     if not expiry_list:
         return html.Span("Loading expiries…",
                          style={"fontSize": "12px", "color": MUTED})
-
     buttons = []
     for ts, label in expiry_list:
         is_active = (str(label) == str(active))
@@ -687,39 +726,84 @@ def on_expiry_click(_):
 
 
 @callback(
-    Output("chain-grid", "rowData", allow_duplicate=True),
-    Output("row-count", "children", allow_duplicate=True),
-    Output("chain-grid", "selectedRows", allow_duplicate=True),
+    Output({"type": "filter-btn", "value": dash_all}, "style"),
+    Input("filter-store", "data"),
+    State({"type": "filter-btn", "value": dash_all}, "value"),
+    prevent_initial_call=True,
+)
+def style_filter_buttons(active, _):
+    styles = []
+    for value in ["all", "call", "put"]:
+        is_active = (value == active)
+        if value == "all":
+            color = "#ffffff"
+        elif value == "call":
+            color = CALL_COLOR
+        else:
+            color = PUT_COLOR
+        styles.append({
+            "padding": "5px 12px",
+            "marginLeft": "16px" if value == "all" else "4px",
+            "borderRadius": "5px",
+            "border": f"1px solid {BORDER}",
+            "background": ACCENT if is_active else "#21262d",
+            "color": "#ffffff" if is_active else color,
+            "fontSize": "11px",
+            "cursor": "pointer",
+            "fontWeight": "600",
+        })
+    return styles
+
+
+@callback(
+    Output("rows-store", "data"),
     Input("tick", "n_intervals"),
     Input("symbol-store", "data"),
     Input("expiry-store", "data"),
     State("expiry-list", "data"),
+    prevent_initial_call=True,
+)
+def fetch_rows(_, symbol, expiry, expiry_list):
+    if not symbol or not expiry or not expiry_list:
+        return []
+    valid_labels = {str(label) for _, label in expiry_list}
+    if str(expiry) not in valid_labels:
+        return []
+    try:
+        if symbol in CRYPTO_SYMBOLS:
+            return get_crypto_chain(symbol, expiry, 30)
+        else:
+            return get_stock_chain(symbol, expiry, 30)
+    except Exception as e:
+        print(f"[fetch] error: {e}")
+        return []
+
+
+@callback(
+    Output("chain-grid", "rowData"),
+    Output("row-count", "children"),
+    Output("chain-grid", "selectedRows", allow_duplicate=True),
+    Input("rows-store", "data"),
+    Input("filter-store", "data"),
     State("chain-grid", "selectedRows"),
     prevent_initial_call=True,
 )
-def refresh(_, symbol, expiry, expiry_list, current_selected):
-    if not symbol or not expiry or not expiry_list:
-        return [], "Loading…", no_update
+def apply_filter(rows, filter_value, current_selected):
+    if not rows:
+        return [], "0 contracts", no_update
 
-    valid_labels = {str(label) for _, label in expiry_list}
-    if str(expiry) not in valid_labels:
-        return [], "Loading…", no_update
-
-    try:
-        if symbol in CRYPTO_SYMBOLS:
-            rows = get_crypto_chain(symbol, expiry, 30)
-        else:
-            rows = get_stock_chain(symbol, expiry, 30)
-    except Exception as e:
-        print(f"[refresh] error: {e}")
-        return [], "error", no_update
-
-    if not current_selected and rows:
-        selected = [rows[0]]
+    if filter_value == "call":
+        filtered = [r for r in rows if r["type"] == "call"]
+    elif filter_value == "put":
+        filtered = [r for r in rows if r["type"] == "put"]
     else:
-        selected = current_selected or []
+        filtered = rows
 
-    return rows, f"{len(rows)} contracts", selected
+    selected = current_selected
+    if not selected and filtered:
+        selected = [filtered[0]]
+
+    return filtered, f"{len(filtered)} contracts", selected
 
 
 @callback(
@@ -733,15 +817,9 @@ def add_long(n, selected, legs):
     if not selected or n == 0:
         return legs
     row = selected[0]
-    leg = {
-        "side": 1,
-        "type": row["type"],
-        "strike": row["strike"],
-        "premium": row.get("bid") or 0,
-        "instrument": row["instrument"],
-    }
-    legs = legs or []
-    return legs + [leg]
+    leg = {"side": 1, "type": row["type"], "strike": row["strike"],
+           "premium": row.get("bid") or 0, "instrument": row["instrument"]}
+    return (legs or []) + [leg]
 
 
 @callback(
@@ -755,15 +833,9 @@ def add_short(n, selected, legs):
     if not selected or n == 0:
         return legs
     row = selected[0]
-    leg = {
-        "side": -1,
-        "type": row["type"],
-        "strike": row["strike"],
-        "premium": row.get("bid") or 0,
-        "instrument": row["instrument"],
-    }
-    legs = legs or []
-    return legs + [leg]
+    leg = {"side": -1, "type": row["type"], "strike": row["strike"],
+           "premium": row.get("bid") or 0, "instrument": row["instrument"]}
+    return (legs or []) + [leg]
 
 
 @callback(
@@ -776,15 +848,9 @@ def add_short(n, selected, legs):
 def add_underlying(n, symbol, legs):
     if n == 0:
         return legs
-    leg = {
-        "side": 1,
-        "type": "underlying",
-        "strike": 0,
-        "premium": 0,
-        "instrument": symbol,
-    }
-    legs = legs or []
-    return legs + [leg]
+    leg = {"side": 1, "type": "underlying", "strike": 0, "premium": 0,
+           "instrument": symbol}
+    return (legs or []) + [leg]
 
 
 @callback(
@@ -802,26 +868,22 @@ def clear_legs(n):
     Output("legs-store", "data", allow_duplicate=True),
     Input("preset-cc", "n_clicks"),
     State("symbol-store", "data"),
-    State("chain-grid", "rowData"),
+    State("rows-store", "data"),
     prevent_initial_call=True,
 )
 def preset_covered_call(n, symbol, rows):
     if not n or not rows:
         return no_update
-
     spot = get_crypto_spot(symbol) if symbol in CRYPTO_SYMBOLS else get_stock_spot(symbol)
     if spot is None:
         return no_update
-
     calls = [r for r in rows if r["type"] == "call" and r["strike"] > spot]
     calls.sort(key=lambda r: r["strike"])
     if not calls:
         return no_update
-
     call = calls[0]
     return [
-        {"side": 1, "type": "underlying", "strike": 0, "premium": 0,
-         "instrument": symbol},
+        {"side": 1, "type": "underlying", "strike": 0, "premium": 0, "instrument": symbol},
         {"side": -1, "type": "call", "strike": call["strike"],
          "premium": call.get("bid") or 0, "instrument": call["instrument"]},
     ]
@@ -831,30 +893,25 @@ def preset_covered_call(n, symbol, rows):
     Output("legs-store", "data", allow_duplicate=True),
     Input("preset-cs", "n_clicks"),
     State("symbol-store", "data"),
-    State("chain-grid", "rowData"),
+    State("rows-store", "data"),
     prevent_initial_call=True,
 )
 def preset_call_spread(n, symbol, rows):
     if not n or not rows:
         return no_update
-
     spot = get_crypto_spot(symbol) if symbol in CRYPTO_SYMBOLS else get_stock_spot(symbol)
     if spot is None:
         return no_update
-
     calls = sorted([r for r in rows if r["type"] == "call"], key=lambda r: r["strike"])
     otm = [c for c in calls if c["strike"] > spot]
     if len(otm) < 2:
         return no_update
-
-    long_leg = otm[0]
-    short_leg = otm[1]
+    l, s = otm[0], otm[1]
     return [
-        {"side": 1, "type": "call", "strike": long_leg["strike"],
-         "premium": long_leg.get("ask") or long_leg.get("bid") or 0,
-         "instrument": long_leg["instrument"]},
-        {"side": -1, "type": "call", "strike": short_leg["strike"],
-         "premium": short_leg.get("bid") or 0, "instrument": short_leg["instrument"]},
+        {"side": 1, "type": "call", "strike": l["strike"],
+         "premium": l.get("ask") or l.get("bid") or 0, "instrument": l["instrument"]},
+        {"side": -1, "type": "call", "strike": s["strike"],
+         "premium": s.get("bid") or 0, "instrument": s["instrument"]},
     ]
 
 
@@ -862,35 +919,30 @@ def preset_call_spread(n, symbol, rows):
     Output("legs-store", "data", allow_duplicate=True),
     Input("preset-ic", "n_clicks"),
     State("symbol-store", "data"),
-    State("chain-grid", "rowData"),
+    State("rows-store", "data"),
     prevent_initial_call=True,
 )
 def preset_iron_condor(n, symbol, rows):
     if not n or not rows:
         return no_update
-
     spot = get_crypto_spot(symbol) if symbol in CRYPTO_SYMBOLS else get_stock_spot(symbol)
     if spot is None:
         return no_update
-
     calls = sorted([r for r in rows if r["type"] == "call"], key=lambda r: r["strike"])
     puts = sorted([r for r in rows if r["type"] == "put"], key=lambda r: r["strike"])
-
-    otm_calls = [c for c in calls if c["strike"] > spot]
-    otm_puts = [p for p in puts if p["strike"] < spot]
-
-    if len(otm_calls) < 2 or len(otm_puts) < 2:
+    oc = [c for c in calls if c["strike"] > spot]
+    op = [p for p in puts if p["strike"] < spot]
+    if len(oc) < 2 or len(op) < 2:
         return no_update
-
     return [
-        {"side": 1, "type": "put", "strike": otm_puts[0]["strike"],
-         "premium": otm_puts[0].get("ask") or 0, "instrument": otm_puts[0]["instrument"]},
-        {"side": -1, "type": "put", "strike": otm_puts[1]["strike"],
-         "premium": otm_puts[1].get("bid") or 0, "instrument": otm_puts[1]["instrument"]},
-        {"side": -1, "type": "call", "strike": otm_calls[0]["strike"],
-         "premium": otm_calls[0].get("bid") or 0, "instrument": otm_calls[0]["instrument"]},
-        {"side": 1, "type": "call", "strike": otm_calls[1]["strike"],
-         "premium": otm_calls[1].get("ask") or 0, "instrument": otm_calls[1]["instrument"]},
+        {"side": 1, "type": "put", "strike": op[0]["strike"],
+         "premium": op[0].get("ask") or 0, "instrument": op[0]["instrument"]},
+        {"side": -1, "type": "put", "strike": op[1]["strike"],
+         "premium": op[1].get("bid") or 0, "instrument": op[1]["instrument"]},
+        {"side": -1, "type": "call", "strike": oc[0]["strike"],
+         "premium": oc[0].get("bid") or 0, "instrument": oc[0]["instrument"]},
+        {"side": 1, "type": "call", "strike": oc[1]["strike"],
+         "premium": oc[1].get("ask") or 0, "instrument": oc[1]["instrument"]},
     ]
 
 
@@ -898,24 +950,20 @@ def preset_iron_condor(n, symbol, rows):
     Output("legs-store", "data", allow_duplicate=True),
     Input("preset-st", "n_clicks"),
     State("symbol-store", "data"),
-    State("chain-grid", "rowData"),
+    State("rows-store", "data"),
     prevent_initial_call=True,
 )
 def preset_straddle(n, symbol, rows):
     if not n or not rows:
         return no_update
-
     spot = get_crypto_spot(symbol) if symbol in CRYPTO_SYMBOLS else get_stock_spot(symbol)
     if spot is None:
         return no_update
-
     calls = sorted([r for r in rows if r["type"] == "call"], key=lambda r: abs(r["strike"] - spot))
     puts = sorted([r for r in rows if r["type"] == "put"], key=lambda r: abs(r["strike"] - spot))
     if not calls or not puts:
         return no_update
-
-    c = calls[0]
-    p = puts[0]
+    c, p = calls[0], puts[0]
     return [
         {"side": 1, "type": "call", "strike": c["strike"],
          "premium": c.get("ask") or 0, "instrument": c["instrument"]},
@@ -937,12 +985,10 @@ def render_legs(legs):
     for i, leg in enumerate(legs):
         color = PROFIT if leg["side"] > 0 else RED
         side_text = "LONG" if leg["side"] > 0 else "SHORT"
-
         if leg["type"] == "underlying":
             detail = f"{leg['instrument']} (spot)"
         else:
-            detail = f"{leg['type'].upper()} K={leg['strike']} @ {round(leg['premium'], 4)}"
-
+            detail = f"{leg['type'].upper()} K={leg['strike']} @ ${round(leg['premium'], 2)}"
         items.append(html.Div([
             html.Span(f"#{i+1} ", style={"color": MUTED, "fontSize": "11px"}),
             html.Span(f"{side_text} ", style={"color": color, "fontWeight": "600", "fontSize": "12px"}),
@@ -960,12 +1006,10 @@ def render_legs(legs):
 )
 def update_chart(legs, selected, symbol):
     symbol = symbol or "BTC"
-
     if symbol in CRYPTO_SYMBOLS:
         spot = get_crypto_spot(symbol)
     else:
         spot = get_stock_spot(symbol)
-
     if spot is None:
         spot = 100
 
