@@ -1,6 +1,6 @@
 """
 Options Dashboard v2 — Stage 7
-Multi-leg + presets + auto-select first row on load.
+With in-memory caching to avoid re-fetching.
 """
 from dash import (
     Dash, html, dcc, callback, ctx,
@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import requests
 import urllib3
 import yfinance as yf
+import time
 from curl_cffi import requests as curl_requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -36,6 +37,28 @@ _stock_session = curl_requests.Session(impersonate="chrome")
 _stock_session.verify = False
 
 
+# ============================================================
+# IN-MEMORY CACHE (5 min TTL) — cuts Render latency drastically
+# ============================================================
+_cache = {}
+CACHE_TTL = 300  # 5 minutes
+
+
+def cache_get(key):
+    entry = _cache.get(key)
+    if entry is None:
+        return None
+    value, expires = entry
+    if time.time() > expires:
+        del _cache[key]
+        return None
+    return value
+
+
+def cache_set(key, value, ttl=CACHE_TTL):
+    _cache[key] = (value, time.time() + ttl)
+
+
 def http_get(url, params=None, timeout=15):
     try:
         return requests.get(url, params=params, timeout=timeout)
@@ -45,6 +68,11 @@ def http_get(url, params=None, timeout=15):
 
 # ---------- Crypto: Deribit ----------
 def get_crypto_expiries(currency="BTC"):
+    key = f"expiries:{currency}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
     url = f"{DERIBIT}/public/get_instruments?currency={currency}&kind=option&expired=false"
     r = http_get(url)
     data = r.json().get("result", [])
@@ -61,10 +89,16 @@ def get_crypto_expiries(currency="BTC"):
 
     good = [(ts, labels[ts]) for ts, c in counts.items() if c >= 20]
     good.sort()
+    cache_set(key, good, ttl=600)
     return good
 
 
 def get_crypto_chain(currency, expiry_label, limit=30):
+    key = f"chain:{currency}:{expiry_label}:{limit}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
     url = f"{DERIBIT}/public/get_book_summary_by_currency"
     params = {"currency": currency, "kind": "option"}
     r = http_get(url, params=params, timeout=20)
@@ -107,10 +141,16 @@ def get_crypto_chain(currency, expiry_label, limit=30):
             "oi": item.get("open_interest"),
         })
 
+    cache_set(key, rows, ttl=60)  # 1 min for live data
     return rows
 
 
 def get_crypto_spot(currency="BTC"):
+    key = f"spot:{currency}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
     try:
         index_name = f"{currency.lower()}_usd"
         r = http_get(
@@ -118,7 +158,9 @@ def get_crypto_spot(currency="BTC"):
             params={"index_name": index_name},
             timeout=10,
         )
-        return float(r.json()["result"]["index_price"])
+        price = float(r.json()["result"]["index_price"])
+        cache_set(key, price, ttl=30)
+        return price
     except Exception:
         return None
 
@@ -129,19 +171,33 @@ def _get_stock_ticker(symbol):
 
 
 def get_stock_expiries(symbol):
+    key = f"stk_exp:{symbol}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
     try:
         t = _get_stock_ticker(symbol)
         expiries = list(t.options)
-        return [(e, e) for e in expiries[:8]]
+        result = [(e, e) for e in expiries[:8]]
+        cache_set(key, result, ttl=3600)
+        return result
     except Exception as e:
         print(f"[stocks] expiries error {symbol}: {e}")
         return []
 
 
 def get_stock_spot(symbol):
+    key = f"stk_spot:{symbol}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
     try:
         t = _get_stock_ticker(symbol)
-        return float(t.fast_info["last_price"])
+        price = float(t.fast_info["last_price"])
+        cache_set(key, price, ttl=60)
+        return price
     except Exception as e:
         print(f"[stocks] spot error {symbol}: {e}")
         return None
@@ -160,6 +216,11 @@ def _clean(value):
 
 
 def get_stock_chain(symbol, expiry, max_strikes=30):
+    key = f"stk_chain:{symbol}:{expiry}:{max_strikes}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
     try:
         t = _get_stock_ticker(symbol)
         chain = t.option_chain(expiry)
@@ -178,6 +239,8 @@ def get_stock_chain(symbol, expiry, max_strikes=30):
     rows.sort(key=lambda x: abs(x["strike"] - spot))
     rows = rows[:max_strikes]
     rows.sort(key=lambda x: (x["strike"], 0 if x["type"] == "call" else 1))
+
+    cache_set(key, rows, ttl=120)
     return rows
 
 
@@ -211,7 +274,7 @@ def _stock_row(r, symbol, expiry, opt_type):
     }
 
 
-# ---------- Multi-leg chart ----------
+# ---------- Charts ----------
 def make_multi_leg_chart(spot, legs, symbol):
     if not legs:
         fig = go.Figure()
@@ -510,7 +573,7 @@ app.layout = html.Div([
         "padding": "16px 24px",
     }),
 
-    dcc.Interval(id="tick", interval=15000, n_intervals=0),
+    dcc.Interval(id="tick", interval=30000, n_intervals=0),
     dcc.Store(id="symbol-store", data="BTC"),
     dcc.Store(id="expiry-store", data=None),
     dcc.Store(id="expiry-list", data=[]),
@@ -631,11 +694,10 @@ def on_expiry_click(_):
     Input("symbol-store", "data"),
     Input("expiry-store", "data"),
     State("expiry-list", "data"),
-    State("chain-grid", "rowData"),
     State("chain-grid", "selectedRows"),
     prevent_initial_call=True,
 )
-def refresh(_, symbol, expiry, expiry_list, current_data, current_selected):
+def refresh(_, symbol, expiry, expiry_list, current_selected):
     if not symbol or not expiry or not expiry_list:
         return [], "Loading…", no_update
 
@@ -652,7 +714,6 @@ def refresh(_, symbol, expiry, expiry_list, current_data, current_selected):
         print(f"[refresh] error: {e}")
         return [], "error", no_update
 
-    # Auto-select the first row when nothing is selected yet
     if not current_selected and rows:
         selected = [rows[0]]
     else:
