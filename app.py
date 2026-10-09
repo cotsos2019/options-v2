@@ -1,6 +1,6 @@
 """
-Options Dashboard v2 — Stage 15
-+ Clear labels: presets are auto (from spot), LONG/SHORT are manual (from user selection).
+Options Dashboard v2 — Stage 18
++ Wider grid (65%), narrower chart (35%).
 """
 from dash import (
     Dash, html, dcc, callback, ctx,
@@ -12,6 +12,8 @@ import requests
 import urllib3
 import yfinance as yf
 import time
+import math
+from datetime import datetime, timezone
 from curl_cffi import requests as curl_requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -27,12 +29,12 @@ STRINGS = {
         "symbol": "💰 Σύμβολο:",
         "expiry": "📅 Λήξη:",
         "presets": "⚡ Στρατηγικές (auto από spot):",
-        "presets_hint": "👉 Αυτόματες — επιλέγουν strikes με βάση το spot",
+        "presets_hint": "👉 Αυτόματες — διαλέγουν strikes με βάση το spot",
         "chain": "📋 Options Chain",
         "legs": "🎯 Στρατηγική (Legs)",
         "all": "ΟΛΑ", "calls": "CALLS", "puts": "PUTS",
         "long": "＋ LONG", "short": "－ SHORT",
-        "manual_hint": "👉 Manual — βάζεις τα strikes που διάλεξες στο grid",
+        "manual_hint": "👉 Manual — χρησιμοποιεί τη γραμμή που διάλεξες",
         "underlying": "＋ Υποκείμενο", "clear": "🗑️ Καθαρισμός",
         "no_legs": "Δεν υπάρχουν legs — κλίκαρε μια γραμμή για preview",
         "contracts": "συμβόλαια",
@@ -43,15 +45,15 @@ STRINGS = {
         "about_btn": "❓ Τι είναι αυτό;",
         "analysis_btn": "📊 Ανάλυση Στρατηγικής",
         "guide_title": "📖 Οδηγός Στρατηγικών",
-        "analysis_title": "📊 Ανάλυση της Στρατηγικής σου",
-        "analysis_no_legs": "⚠️ Δεν έχεις προσθέσει legs ακόμα. Κλίκαρε μια γραμμή στο grid και πάτα **+ LONG** ή **+ SHORT**, ή διάλεξε ένα preset.",
+        "analysis_title": "📊 Ανάλυση Στρατηγικής",
+        "analysis_no_legs": "⚠️ Δεν έχεις legs. Κλίκαρε γραμμή + **+ LONG / + SHORT** ή διάλεξε preset.",
         "analysis_your_legs": "🎯 Τα legs σου",
         "analysis_chart": "📈 Διάγραμμα Κέρδους / Ζημιάς",
-        "analysis_scenarios": "🎲 Σενάρια — Πότε κερδίζεις και πότε χάνεις",
+        "analysis_scenarios": "🎲 Σενάρια",
         "analysis_summary": "💰 Σύνοψη",
         "analysis_max_profit": "Μέγιστο κέρδος",
         "analysis_max_loss": "Μέγιστη ζημιά",
-        "analysis_breakevens": "Σημεία εξισορρόπησης (Break-even)",
+        "analysis_breakevens": "Break-even",
         "analysis_win_zone": "🟢 Κερδίζεις όταν",
         "analysis_lose_zone": "🔴 Χάνεις όταν",
         "analysis_net_cost": "Καθαρό κόστος",
@@ -59,8 +61,28 @@ STRINGS = {
         "analysis_scenario_result": "Τότε…",
         "analysis_scenario_profit": "Κέρδος",
         "analysis_scenario_loss": "Ζημιά",
-        "close": "Κλείσιμο",
         "unlimited": "Απεριόριστο",
+        "exec_title": "⚙️ Εντολές Εκτέλεσης",
+        "exec_buy": "ΑΓΟΡΑ",
+        "exec_sell": "ΠΩΛΗΣΗ",
+        "exec_capital": "Απαιτούμενο Κεφάλαιο",
+        "exec_contracts": "συμβόλαια",
+        "prob_title": "📊 Πιθανότητες (κατά προσέγγιση)",
+        "prob_itm": "Πιθανότητα ITM",
+        "prob_otm": "Πιθανότητα OTM",
+        "prob_note": "Υπολογισμός με Black-Scholes N(d2) βάσει IV. Ενδεικτικό.",
+        "warn_title": "⚠️ Προειδοποιήσεις",
+        "warn_below": "Αν πέσει κάτω από",
+        "warn_above": "Αν ανέβει πάνω από",
+        "warn_less_usd": "θα έχεις λιγότερα USD",
+        "warn_less_crypto": "θα έχεις λιγότερα BTC",
+        "warn_less_stock": "θα έχεις λιγότερες μετοχές",
+        "one_contract_crypto": "1 συμβόλαιο = 1 BTC/ETH",
+        "one_contract_stock": "1 συμβόλαιο = 100 μετοχές",
+        "capital_col": "Capital",
+        "prob_col": "Prob ITM",
+        "premium_col": "Premium",
+        "be_col": "BE",
     },
     "en": {
         "title": "📊 Options Dashboard",
@@ -68,12 +90,12 @@ STRINGS = {
         "symbol": "💰 Symbol:",
         "expiry": "📅 Expiry:",
         "presets": "⚡ Strategies (auto from spot):",
-        "presets_hint": "👉 Automatic — picks strikes based on spot",
+        "presets_hint": "👉 Automatic — pick strikes from spot",
         "chain": "📋 Options Chain",
         "legs": "🎯 Strategy Legs",
         "all": "ALL", "calls": "CALLS", "puts": "PUTS",
         "long": "＋ LONG", "short": "－ SHORT",
-        "manual_hint": "👉 Manual — uses the strikes you picked in the grid",
+        "manual_hint": "👉 Manual — uses the row you picked",
         "underlying": "＋ Underlying", "clear": "🗑️ Clear",
         "no_legs": "No legs yet — click a row for preview",
         "contracts": "contracts",
@@ -84,15 +106,15 @@ STRINGS = {
         "about_btn": "❓ What is this?",
         "analysis_btn": "📊 Strategy Analysis",
         "guide_title": "📖 Strategy Guide",
-        "analysis_title": "📊 Your Strategy Analysis",
-        "analysis_no_legs": "⚠️ You haven't added any legs yet. Click a grid row and press **+ LONG** or **+ SHORT**, or pick a preset.",
+        "analysis_title": "📊 Strategy Analysis",
+        "analysis_no_legs": "⚠️ No legs. Click a row + **+ LONG / + SHORT** or pick a preset.",
         "analysis_your_legs": "🎯 Your legs",
         "analysis_chart": "📈 Profit / Loss Chart",
-        "analysis_scenarios": "🎲 Scenarios — When you win and when you lose",
+        "analysis_scenarios": "🎲 Scenarios",
         "analysis_summary": "💰 Summary",
         "analysis_max_profit": "Max profit",
         "analysis_max_loss": "Max loss",
-        "analysis_breakevens": "Break-even points",
+        "analysis_breakevens": "Break-even",
         "analysis_win_zone": "🟢 You win when",
         "analysis_lose_zone": "🔴 You lose when",
         "analysis_net_cost": "Net cost",
@@ -100,8 +122,28 @@ STRINGS = {
         "analysis_scenario_result": "Then…",
         "analysis_scenario_profit": "Profit",
         "analysis_scenario_loss": "Loss",
-        "close": "Close",
         "unlimited": "Unlimited",
+        "exec_title": "⚙️ Execution Instructions",
+        "exec_buy": "BUY",
+        "exec_sell": "SELL",
+        "exec_capital": "Capital Required",
+        "exec_contracts": "contracts",
+        "prob_title": "📊 Probabilities (approx.)",
+        "prob_itm": "Prob ITM",
+        "prob_otm": "Prob OTM",
+        "prob_note": "Computed with Black-Scholes N(d2) using IV. Indicative.",
+        "warn_title": "⚠️ Warnings",
+        "warn_below": "If it falls below",
+        "warn_above": "If it rises above",
+        "warn_less_usd": "you'll have less USD",
+        "warn_less_crypto": "you'll have less BTC",
+        "warn_less_stock": "you'll have fewer shares",
+        "one_contract_crypto": "1 contract = 1 BTC/ETH",
+        "one_contract_stock": "1 contract = 100 shares",
+        "capital_col": "Capital",
+        "prob_col": "Prob ITM",
+        "premium_col": "Premium",
+        "be_col": "BE",
     },
 }
 
@@ -129,12 +171,41 @@ ACCENT = "#1f6feb"
 RED = "#da3633"
 CALL_COLOR = "#2ecc71"
 PUT_COLOR = "#e74c3c"
+WARN = "#f39c12"
 
 CRYPTO_SYMBOLS = {"BTC", "ETH"}
 ALL_SYMBOLS = ["BTC", "ETH", "AAPL", "SPY", "TSLA", "NVDA", "MSFT", "QQQ"]
 
 _stock_session = curl_requests.Session(impersonate="chrome")
 _stock_session.verify = False
+
+
+def _norm_cdf(x):
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def bs_prob_itm(S, K, T, r, sigma, opt_type):
+    try:
+        if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+            return None
+        d2 = (math.log(S / K) + (r - 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
+        if opt_type == "call":
+            return _norm_cdf(d2)
+        else:
+            return _norm_cdf(-d2)
+    except Exception:
+        return None
+
+
+def _years_to_expiry(expiry_str):
+    try:
+        exp = datetime.strptime(expiry_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        seconds = (exp - now).total_seconds()
+        return max(seconds / (365.0 * 24 * 3600), 0.0)
+    except Exception:
+        return 0.0
+
 
 _cache = {}
 
@@ -208,6 +279,8 @@ def get_crypto_chain(currency, expiry_label, limit=30):
         matched = matched[:limit]
         matched.sort(key=strike_of)
 
+    T = _parse_deribit_expiry_to_years(expiry_label)
+
     rows = []
     for item in matched:
         name = item["instrument_name"]
@@ -220,13 +293,52 @@ def get_crypto_chain(currency, expiry_label, limit=30):
         bid_btc, ask_btc = item.get("bid_price"), item.get("ask_price")
         bid_usd = round(float(bid_btc) * spot, 2) if bid_btc and spot else None
         ask_usd = round(float(ask_btc) * spot, 2) if ask_btc and spot else None
+
+        if bid_usd is not None and ask_usd is not None:
+            premium = (bid_usd + ask_usd) / 2
+        else:
+            premium = bid_usd or ask_usd or 0
+
+        iv_pct = item.get("mark_iv")
+        iv_dec = (iv_pct / 100.0) if iv_pct else None
+
+        prob = None
+        if iv_dec and spot and T > 0:
+            prob = bs_prob_itm(spot, strike, T, 0.045, iv_dec, opt_type)
+
+        capital_long = ask_usd if ask_usd else None
+
         rows.append({
-            "instrument": name, "type": opt_type, "strike": strike,
-            "bid": bid_usd, "ask": ask_usd, "iv": item.get("mark_iv"),
-            "delta": None, "volume": item.get("volume"), "oi": item.get("open_interest"),
+            "instrument": name,
+            "type": opt_type,
+            "strike": strike,
+            "bid": bid_usd,
+            "ask": ask_usd,
+            "premium": round(premium, 2) if premium else None,
+            "capital": capital_long,
+            "prob_itm": round(prob, 4) if prob is not None else None,
+            "iv": iv_pct,
+            "volume": item.get("volume"),
+            "oi": item.get("open_interest"),
         })
     cache_set(key, rows, ttl=60)
     return rows
+
+
+def _parse_deribit_expiry_to_years(label):
+    try:
+        day = int(label[:2])
+        mon_str = label[2:5]
+        year = int("20" + label[5:7])
+        months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+        month = months.index(mon_str) + 1
+        exp = datetime(year, month, day, 8, 0, 0, tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        sec = (exp - now).total_seconds()
+        return max(sec / (365.0 * 24 * 3600), 0.0)
+    except Exception:
+        return 0.0
 
 
 def get_crypto_spot(currency="BTC"):
@@ -301,11 +413,14 @@ def get_stock_chain(symbol, expiry, max_strikes=30):
     except Exception:
         return []
     spot = get_stock_spot(symbol) or 0
+    T = _years_to_expiry(expiry)
+    r_rate = 0.045
+
     rows = []
-    for _, r in chain.calls.iterrows():
-        rows.append(_stock_row(r, symbol, expiry, "call"))
-    for _, r in chain.puts.iterrows():
-        rows.append(_stock_row(r, symbol, expiry, "put"))
+    for _, row in chain.calls.iterrows():
+        rows.append(_stock_row(row, symbol, expiry, "call", spot, T, r_rate))
+    for _, row in chain.puts.iterrows():
+        rows.append(_stock_row(row, symbol, expiry, "put", spot, T, r_rate))
     rows.sort(key=lambda x: abs(x["strike"] - spot))
     rows = rows[:max_strikes]
     rows.sort(key=lambda x: (x["strike"], 0 if x["type"] == "call" else 1))
@@ -313,36 +428,54 @@ def get_stock_chain(symbol, expiry, max_strikes=30):
     return rows
 
 
-def _stock_row(r, symbol, expiry, opt_type):
+def _stock_row(r, symbol, expiry, opt_type, spot, T, r_rate):
     strike = _clean(r.get("strike"))
     bid = _clean(r.get("bid"))
     ask = _clean(r.get("ask"))
     last = _clean(r.get("lastPrice"))
     iv = _clean(r.get("impliedVolatility"))
     volume = _clean(r.get("volume"))
+
     if bid == 0 and ask == 0 and last > 0:
         bid = round(last * 0.98, 2)
         ask = round(last * 1.02, 2)
+
     if iv < 0.001:
-        iv = 0
+        iv_dec = 0
+        iv_pct = 0
     else:
-        iv = iv * 100
+        iv_dec = iv
+        iv_pct = iv * 100
+
+    premium = (bid + ask) / 2 if (bid or ask) else last
+    capital = ask * 100 if ask > 0 else None
+
+    prob = None
+    if iv_dec > 0 and spot and T > 0:
+        prob = bs_prob_itm(spot, strike, T, r_rate, iv_dec, opt_type)
+
     suffix = "C" if opt_type == "call" else "P"
     return {
         "instrument": f"{symbol}-{expiry}-{strike}-{suffix}",
-        "type": opt_type, "strike": strike, "bid": bid, "ask": ask,
-        "iv": iv, "delta": None, "volume": int(volume),
+        "type": opt_type,
+        "strike": strike,
+        "bid": bid,
+        "ask": ask,
+        "premium": round(premium, 2),
+        "capital": round(capital, 2) if capital else None,
+        "prob_itm": round(prob, 4) if prob is not None else None,
+        "iv": iv_pct,
+        "volume": int(volume),
         "oi": int(_clean(r.get("openInterest"))),
     }
 
 
-# ============================================================
-# ANALYSIS
-# ============================================================
-def analyze_strategy(spot, legs, lang):
+def analyze_strategy(spot, legs, symbol, lang):
     if not legs:
         return None
     s = STRINGS[lang]
+    is_crypto = symbol in CRYPTO_SYMBOLS
+    multiplier = 1 if is_crypto else 100
 
     strikes = [l["strike"] for l in legs if l["type"] != "underlying"]
     all_levels = strikes + [spot] if strikes else [spot]
@@ -357,11 +490,11 @@ def analyze_strategy(spot, legs, lang):
             side = leg["side"]
             prem = leg["premium"]
             if leg["type"] == "underlying":
-                pnl += side * (p - spot)
+                pnl += side * (p - spot) * multiplier
             elif leg["type"] == "call":
-                pnl += side * (max(p - leg["strike"], 0) - prem)
+                pnl += side * (max(p - leg["strike"], 0) - prem) * multiplier
             elif leg["type"] == "put":
-                pnl += side * (max(leg["strike"] - p, 0) - prem)
+                pnl += side * (max(leg["strike"] - p, 0) - prem) * multiplier
         return pnl
 
     pnls = [payoff(p) for p in prices]
@@ -370,7 +503,7 @@ def analyze_strategy(spot, legs, lang):
     for leg in legs:
         if leg["type"] == "underlying":
             continue
-        net_cost += -1 * leg["side"] * leg["premium"]
+        net_cost += -1 * leg["side"] * leg["premium"] * multiplier
 
     breakevens = []
     for i in range(1, len(prices)):
@@ -383,16 +516,6 @@ def analyze_strategy(spot, legs, lang):
 
     max_profit = max(pnls)
     max_loss = min(pnls)
-
-    profit_unlimited = False
-    loss_unlimited = False
-    if len(pnls) >= 20:
-        slope_high = pnls[-1] - pnls[-10]
-        if slope_high > 100:
-            profit_unlimited = True
-        slope_low = pnls[10] - pnls[0]
-        if slope_low > 100:
-            profit_unlimited = True
 
     win_ranges = []
     in_win = False
@@ -407,21 +530,19 @@ def analyze_strategy(spot, legs, lang):
     if in_win:
         win_ranges.append((round(win_start, 2), round(prices[-1], 2)))
 
-    scenarios = []
     test_prices = sorted(set([
-        round(spot * 0.90, 2), round(spot * 0.95, 2),
-        round(spot, 2),
+        round(spot * 0.90, 2), round(spot * 0.95, 2), round(spot, 2),
         round(spot * 1.05, 2), round(spot * 1.10, 2), round(spot * 1.15, 2),
     ]))
     while len(test_prices) < 6:
         test_prices.append(round(test_prices[-1] * 1.05, 2))
     test_prices = test_prices[:6]
 
+    scenarios = []
     for p in test_prices:
         pnl = payoff(p)
         scenarios.append({"price": p, "pnl": round(pnl, 2), "is_profit": pnl >= 0})
 
-    # Chart
     fig = go.Figure()
     profit_x, profit_y = [], []
     loss_x, loss_y = [], []
@@ -433,24 +554,24 @@ def analyze_strategy(spot, legs, lang):
 
     fig.add_trace(go.Scatter(x=profit_x, y=profit_y, mode="lines",
                              line=dict(color=PROFIT, width=3),
-                             fill="tozeroy", fillcolor="rgba(46, 204, 113, 0.25)"))
+                             fill="tozeroy", fillcolor="rgba(46, 204, 113, 0.25)",
+                             name=s["analysis_scenario_profit"]))
     fig.add_trace(go.Scatter(x=loss_x, y=loss_y, mode="lines",
                              line=dict(color=LOSS, width=3),
-                             fill="tozeroy", fillcolor="rgba(231, 76, 60, 0.25)"))
-
+                             fill="tozeroy", fillcolor="rgba(231, 76, 60, 0.25)",
+                             name=s["analysis_scenario_loss"]))
     fig.add_hline(y=0, line_dash="dash", line_color="#8b949e")
     fig.add_vline(x=spot, line_dash="dot", line_color=SPOT, line_width=2,
                   annotation_text=f"Spot ${spot:,.0f}", annotation_position="top",
                   annotation_font=dict(color=SPOT, size=11))
-
     for k in sorted(set(strikes)):
         fig.add_vline(x=k, line_dash="dot", line_color=STRIKE, line_width=1,
                       annotation_text=f"K={k:,.0f}", annotation_position="bottom",
                       annotation_font=dict(color=STRIKE, size=9))
     for be in breakevens:
-        fig.add_vline(x=be, line_dash="dot", line_color="#f39c12", line_width=1,
+        fig.add_vline(x=be, line_dash="dot", line_color=WARN, line_width=1,
                       annotation_text=f"BE ${be:,.0f}", annotation_position="top right",
-                      annotation_font=dict(color=STRIKE, size=10))
+                      annotation_font=dict(color=WARN, size=10))
 
     fig.update_layout(
         paper_bgcolor="#161b22", plot_bgcolor="#161b22",
@@ -460,17 +581,68 @@ def analyze_strategy(spot, legs, lang):
         yaxis=dict(title=dict(text="P&L ($)", font=dict(color="#e6edf3")),
                    tickfont=dict(color="#8b949e"), gridcolor="#30363d"),
         margin=dict(l=60, r=30, t=30, b=50),
-        showlegend=False, height=320,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(color="#8b949e", size=10)),
+        height=320,
     )
 
+    exec_steps = []
+    capital_required = 0.0
+    for leg in legs:
+        if leg["type"] == "underlying":
+            cost = spot * multiplier if leg["side"] > 0 else -spot * multiplier
+            action = "BUY" if leg["side"] > 0 else "SELL"
+            exec_steps.append({
+                "action": action,
+                "desc": f"1 {leg['instrument']} @ ${spot:,.2f}",
+                "cost": cost,
+            })
+            capital_required += abs(cost) if leg["side"] > 0 else 0
+        else:
+            cost = leg["premium"] * multiplier if leg["side"] > 0 else -leg["premium"] * multiplier
+            action = "BUY" if leg["side"] > 0 else "SELL"
+            exec_steps.append({
+                "action": action,
+                "desc": f"1 {leg['type'].upper()} K=${leg['strike']:,.0f} @ ${leg['premium']:,.2f}",
+                "cost": cost,
+            })
+            capital_required += abs(cost) if leg["side"] > 0 else 0
+
+    warnings = []
+    if len(legs) == 2:
+        has_underlying = any(l["type"] == "underlying" and l["side"] > 0 for l in legs)
+        has_short_call = any(l["type"] == "call" and l["side"] < 0 for l in legs)
+        if has_underlying and has_short_call:
+            short_call = next(l for l in legs if l["type"] == "call" and l["side"] < 0)
+            prem = short_call["premium"]
+            k = short_call["strike"]
+            downside = k - prem
+            upside = k + prem
+            warnings.append({
+                "type": "down",
+                "text": f"{s['warn_below']} ${downside:,.2f} ({(downside/spot-1)*100:+.1f}%), {s['warn_less_usd']}",
+            })
+            warnings.append({
+                "type": "up",
+                "text": f"{s['warn_above']} ${upside:,.2f} ({(upside/spot-1)*100:+.1f}%), {s['warn_less_crypto' if is_crypto else 'warn_less_stock']}",
+            })
+
     return {
-        "chart": fig, "scenarios": scenarios,
+        "chart": fig,
+        "scenarios": scenarios,
         "net_cost": round(net_cost, 2),
-        "max_profit": max_profit, "max_loss": max_loss,
-        "profit_unlimited": profit_unlimited,
-        "loss_unlimited": loss_unlimited,
-        "breakevens": breakevens, "win_ranges": win_ranges,
-        "spot": spot, "legs": legs,
+        "max_profit": max_profit,
+        "max_loss": max_loss,
+        "breakevens": breakevens,
+        "win_ranges": win_ranges,
+        "spot": spot,
+        "legs": legs,
+        "exec_steps": exec_steps,
+        "capital_required": round(capital_required, 2),
+        "warnings": warnings,
+        "multiplier": multiplier,
+        "is_crypto": is_crypto,
     }
 
 
@@ -486,7 +658,7 @@ def make_multi_leg_chart(spot, legs, symbol, theme="dark"):
                               showarrow=False, font=dict(color=t["muted"], size=14))],
         )
         return fig
-    analysis = analyze_strategy(spot, legs, "en")
+    analysis = analyze_strategy(spot, legs, symbol, "en")
     if analysis:
         return analysis["chart"]
     return go.Figure()
@@ -527,14 +699,14 @@ def make_preview_chart(spot, strike, premium, symbol, theme="dark"):
                   annotation_font=dict(color=SPOT, size=11))
     fig.update_layout(
         title=dict(text=f"<b>Covered Call Preview — {symbol}</b>",
-                   font=dict(color=t["text"], size=16), x=0.02),
+                   font=dict(color=t["text"], size=14), x=0.02),
         xaxis=dict(title=dict(text=f"{symbol} Price at Expiry", font=dict(color=t["text"])),
                    tickfont=dict(color=t["muted"]), gridcolor=t["border"], zerolinecolor=t["border"]),
         yaxis=dict(title=dict(text="Profit / Loss ($)", font=dict(color=t["text"])),
                    tickfont=dict(color=t["muted"]), gridcolor=t["border"], zerolinecolor=t["border"]),
         paper_bgcolor=t["chart_bg"], plot_bgcolor=t["chart_bg"],
         font=dict(color=t["text"]),
-        hovermode="x unified", margin=dict(l=60, r=30, t=80, b=50), showlegend=False,
+        hovermode="x unified", margin=dict(l=50, r=20, t=60, b=40), showlegend=False,
     )
     return fig
 
@@ -593,6 +765,7 @@ app.index_string = """
                 --ag-foreground-color: #e6edf3;
                 --ag-header-foreground-color: #e6edf3;
                 --ag-selected-row-background-color: #1f6feb;
+                --ag-font-size: 12px;
             }
             .ag-theme-alpine {
                 --ag-background-color: #ffffff;
@@ -604,6 +777,7 @@ app.index_string = """
                 --ag-foreground-color: #1f2328;
                 --ag-header-foreground-color: #1f2328;
                 --ag-selected-row-background-color: #dbeafe;
+                --ag-font-size: 12px;
             }
 
             .ds-hint {
@@ -615,7 +789,35 @@ app.index_string = """
                 border-left: 2px solid #30363d;
             }
 
-            @media (max-width: 1000px) {
+            .exec-card {
+                background: rgba(31, 111, 235, 0.08);
+                border-left: 3px solid #1f6feb;
+                border-radius: 8px;
+                padding: 12px 16px;
+                margin-bottom: 12px;
+            }
+            .exec-action {
+                display: inline-block;
+                font-weight: 700;
+                font-size: 11px;
+                padding: 3px 8px;
+                border-radius: 4px;
+                margin-right: 8px;
+                letter-spacing: 0.5px;
+            }
+            .exec-buy { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
+            .exec-sell { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
+
+            .warn-card {
+                background: rgba(243, 156, 18, 0.1);
+                border-left: 3px solid #f39c12;
+                border-radius: 8px;
+                padding: 10px 14px;
+                margin-bottom: 8px;
+                font-size: 13px;
+            }
+
+            @media (max-width: 1200px) {
                 #main-grid { grid-template-columns: 1fr !important; }
             }
         </style>
@@ -688,7 +890,6 @@ app.layout = html.Div([
                 ], id="filter-row", style={"display": "inline-block", "marginLeft": "16px"}),
             ], id="grid-header", style={"padding": "12px 16px"}),
 
-            # Manual actions row (below the filter buttons)
             html.Div([
                 html.Div([
                     html.Button(id="add-long-btn", n_clicks=0, className="ds-action"),
@@ -700,24 +901,31 @@ app.layout = html.Div([
             dag.AgGrid(
                 id="chain-grid",
                 columnDefs=[
-                    {"field": "instrument", "headerName": "Instrument", "flex": 2, "minWidth": 200},
-                    {"field": "type", "headerName": "Type", "flex": 1,
+                    {"field": "instrument", "headerName": "Instrument", "flex": 3, "minWidth": 200},
+                    {"field": "type", "headerName": "Type", "flex": 1, "minWidth": 55,
                      "cellStyle": {"function": "params.value === 'call' ? {color: '#2ecc71', fontWeight: 600} : {color: '#e74c3c', fontWeight: 600}"}},
-                    {"field": "strike", "headerName": "Strike", "flex": 1,
+                    {"field": "strike", "headerName": "Strike", "flex": 1, "minWidth": 80,
                      "valueFormatter": {"function": "params.value ? '$' + params.value.toLocaleString() : ''"}},
-                    {"field": "bid", "headerName": "Bid", "flex": 1,
+                    {"field": "bid", "headerName": "Bid", "flex": 1, "minWidth": 75,
                      "valueFormatter": {"function": "params.value != null ? '$' + Number(params.value).toFixed(2) : ''"}},
-                    {"field": "ask", "headerName": "Ask", "flex": 1,
+                    {"field": "ask", "headerName": "Ask", "flex": 1, "minWidth": 75,
                      "valueFormatter": {"function": "params.value != null ? '$' + Number(params.value).toFixed(2) : ''"}},
-                    {"field": "iv", "headerName": "IV", "flex": 1,
+                    {"field": "premium", "headerName": "Premium", "flex": 1, "minWidth": 85,
+                     "valueFormatter": {"function": "params.value != null ? '$' + Number(params.value).toFixed(2) : ''"}},
+                    {"field": "capital", "headerName": "Capital", "flex": 1, "minWidth": 90,
+                     "valueFormatter": {"function": "params.value != null ? '$' + Number(params.value).toLocaleString() : ''"}},
+                    {"field": "prob_itm", "headerName": "Prob ITM", "flex": 1, "minWidth": 85,
+                     "valueFormatter": {"function": "params.value != null ? (Number(params.value) * 100).toFixed(1) + '%' : ''"},
+                     "cellStyle": {"function": "params.value == null ? {} : (params.value >= 0.5 ? {color: '#2ecc71', fontWeight: 600} : {color: '#e74c3c', fontWeight: 600})"}},
+                    {"field": "iv", "headerName": "IV", "flex": 1, "minWidth": 65,
                      "valueFormatter": {"function": "params.value ? Number(params.value).toFixed(1) + '%' : ''"}},
-                    {"field": "volume", "headerName": "Vol", "flex": 1,
+                    {"field": "volume", "headerName": "Vol", "flex": 1, "minWidth": 65,
                      "valueFormatter": {"function": "params.value != null ? Number(params.value).toLocaleString() : ''"}},
-                    {"field": "oi", "headerName": "OI", "flex": 1,
+                    {"field": "oi", "headerName": "OI", "flex": 1, "minWidth": 65,
                      "valueFormatter": {"function": "params.value != null ? Number(params.value).toLocaleString() : ''"}},
                 ],
                 rowData=[],
-                style={"height": "calc(100vh - 460px)", "minHeight": "280px"},
+                style={"height": "calc(100vh - 460px)", "minHeight": "320px"},
                 className="ag-theme-alpine-dark",
                 dashGridOptions={
                     "rowSelection": "single",
@@ -735,7 +943,7 @@ app.layout = html.Div([
                     html.Button(id="clear-legs-btn", n_clicks=0, className="ds-action"),
                 ], style={"marginBottom": "8px"}),
                 html.Div(id="legs-list",
-                         children=html.Span("No legs yet — click a row for preview",
+                         children=html.Span("No legs yet",
                                             style={"fontSize": "12px"})),
             ], id="legs-panel", style={"padding": "12px 16px", "minHeight": "100px",
                                         "maxHeight": "180px", "overflowY": "auto"}),
@@ -745,8 +953,12 @@ app.layout = html.Div([
             dcc.Graph(id="chart", style={"height": "calc(100vh - 260px)", "minHeight": "400px"},
                       config={"displayModeBar": False}),
         ], id="chart-panel", style={"borderRadius": "8px", "overflow": "hidden"}),
-    ], id="main-grid", style={"display": "grid", "gridTemplateColumns": "1fr 1fr",
-                               "gap": "16px", "padding": "16px 24px"}),
+    ], id="main-grid", style={
+        "display": "grid",
+        "gridTemplateColumns": "1.9fr 1.1fr",   # ← ΜΕΓΑΛΥΤΕΡΟ grid, μικρότερο chart
+        "gap": "16px",
+        "padding": "16px 24px",
+    }),
 
     html.Div([
         html.Div([
@@ -796,7 +1008,6 @@ app.layout = html.Div([
 })
 
 
-# CALLBACKS
 @callback(Output("theme-store", "data"),
           Input("theme-toggle", "n_clicks"),
           State("theme-store", "data"), prevent_initial_call=True)
@@ -854,9 +1065,8 @@ def render_language(lang):
     s = STRINGS[lang]
     return (
         s["title"], s["subtitle"], s["symbol"], s["expiry"], s["presets"],
-        s["presets_hint"],
-        s["chain"], s["legs"], s["long"], s["short"], s["manual_hint"],
-        s["underlying"], s["clear"],
+        s["presets_hint"], s["chain"], s["legs"], s["long"], s["short"],
+        s["manual_hint"], s["underlying"], s["clear"],
         s["preset_cc"], s["preset_cs"], s["preset_ic"], s["preset_st"],
         s["about_btn"], s["analysis_btn"], s["guide_title"],
     )
@@ -889,44 +1099,36 @@ def render_about_modal(is_open, theme, lang):
     if lang == "el":
         body = """
 ### 🛡️ Covered Call
-Αγοράζεις το υποκείμενο, πουλάς ένα OTM call. Μικρό σταθερό κέρδος σε flat αγορές.
+Αγοράζεις το υποκείμενο, πουλάς OTM call. Μικρό σταθερό κέρδος.
 
 ### ↗️ Call Spread
-Αγοράζεις call + πουλάς call πιο ψηλά. Περιορισμένο κέρδος, μικρό κόστος.
+Long call + short πιο ψηλό call. Περιορισμένο κέρδος, μικρό κόστος.
 
 ### 🦅 Iron Condor
 4 legs. Κερδίζεις αν η τιμή μείνει κοντά στο spot.
 
 ### ⚖️ Straddle
-Αγοράζεις call + put στο ίδιο strike. Κερδίζεις αν κουνηθεί πολύ.
+Long call + long put στο ίδιο strike. Κερδίζεις αν κουνηθεί πολύ.
 
 ---
-💡 **Για πραγματικά νούμερα**, πρόσθεσε legs και πάτα **📊 Ανάλυση Στρατηγικής**.
-
-**Δύο τρόποι για να χτίσεις στρατηγική:**
-- **⚡ Presets (auto):** επιλέγουν strikes **αυτόματα με βάση το spot**.
-- **＋ LONG / － SHORT (manual):** χρησιμοποιούν **τη γραμμή που διάλεξες** στο grid.
+💡 Πρόσθεσε legs και πάτα **📊 Ανάλυση Στρατηγικής** για **πραγματικά νούμερα**.
 """
     else:
         body = """
 ### 🛡️ Covered Call
-Buy underlying, sell OTM call. Small steady profit in flat markets.
+Buy underlying, sell OTM call. Small steady profit.
 
 ### ↗️ Call Spread
-Buy call + sell higher call. Capped profit, low cost.
+Long call + short higher call. Capped profit, low cost.
 
 ### 🦅 Iron Condor
 4 legs. Win if price stays near spot.
 
 ### ⚖️ Straddle
-Buy call + put at same strike. Win if price moves a lot.
+Long call + long put at same strike. Win if price moves a lot.
 
 ---
-💡 **For real numbers**, add legs and press **📊 Strategy Analysis**.
-
-**Two ways to build a strategy:**
-- **⚡ Presets (auto):** pick strikes **automatically based on spot**.
-- **＋ LONG / － SHORT (manual):** use **the row you selected** in the grid.
+💡 Add legs and press **📊 Strategy Analysis** for **real numbers**.
 """
     return modal_style, content_style, title_style, body
 
@@ -970,14 +1172,14 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol):
     else:
         spot = get_stock_spot(symbol) or 100
 
-    analysis = analyze_strategy(spot, legs, lang)
+    analysis = analyze_strategy(spot, legs, symbol, lang)
     if not analysis:
         return (modal_style, content_style, title_style,
                 html.Div("Error", style={"padding": "20px"}))
 
-    body_children = []
-    body_children.append(html.H3(s["analysis_your_legs"],
-                                 style={"fontSize": "15px", "marginTop": "0"}))
+    body = []
+    body.append(html.H3(s["analysis_your_legs"],
+                        style={"fontSize": "15px", "marginTop": "0"}))
     leg_items = []
     for i, leg in enumerate(legs):
         side_color = PROFIT if leg["side"] > 0 else RED
@@ -985,58 +1187,87 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol):
         if leg["type"] == "underlying":
             detail = f"{leg['instrument']} @ ${spot:,.2f}"
         else:
-            detail = f"{leg['type'].upper()} K=${leg['strike']:,.2f} @ ${leg['premium']:,.2f}"
+            detail = f"{leg['type'].upper()} K=${leg['strike']:,.0f} @ ${leg['premium']:,.2f}"
         leg_items.append(html.Div([
             html.Span(f"#{i+1} ", style={"color": t["muted"], "fontSize": "11px"}),
             html.Span(f"{side_text} ", style={"color": side_color, "fontWeight": "700", "fontSize": "13px"}),
             html.Span(detail, style={"color": t["text"], "fontSize": "13px"}),
         ], style={"padding": "4px 0", "borderBottom": f"1px solid {t['border']}"}))
-    body_children.append(html.Div(leg_items, style={"marginBottom": "20px"}))
+    body.append(html.Div(leg_items, style={"marginBottom": "16px"}))
 
-    body_children.append(html.H3(s["analysis_summary"], style={"fontSize": "15px"}))
+    body.append(html.H3(s["exec_title"], style={"fontSize": "15px"}))
+    exec_rows = []
+    for step in analysis["exec_steps"]:
+        cls = "exec-buy" if step["action"] == "BUY" else "exec-sell"
+        exec_rows.append(html.Div([
+            html.Span(step["action"], className=f"exec-action {cls}"),
+            html.Span(step["desc"], style={"color": t["text"], "fontSize": "13px"}),
+            html.Span(f"  (${step['cost']:+,.2f})",
+                      style={"color": PROFIT if step["cost"] < 0 else LOSS,
+                             "fontWeight": "600", "marginLeft": "6px"}),
+        ], style={"marginBottom": "6px"}))
+
+    exec_card = html.Div([
+        html.Div(exec_rows),
+        html.Div([
+            html.Span(s["exec_capital"] + ": ",
+                      style={"fontWeight": "600", "fontSize": "13px"}),
+            html.Span(f"${analysis['capital_required']:,.2f}",
+                      style={"color": ACCENT, "fontWeight": "700", "fontSize": "15px"}),
+        ], style={"marginTop": "12px", "paddingTop": "10px",
+                  "borderTop": f"1px dashed {t['border']}"}),
+        html.Div(s["one_contract_crypto" if analysis["is_crypto"] else "one_contract_stock"],
+                 style={"fontSize": "11px", "color": t["muted"],
+                        "fontStyle": "italic", "marginTop": "4px"}),
+    ], className="exec-card")
+    body.append(exec_card)
+
+    if analysis["warnings"]:
+        body.append(html.H3(s["warn_title"], style={"fontSize": "15px"}))
+        for w in analysis["warnings"]:
+            body.append(html.Div(w["text"], className="warn-card"))
+
+    body.append(html.H3(s["analysis_summary"], style={"fontSize": "15px"}))
     net_cost = analysis["net_cost"]
     cost_color = RED if net_cost > 0 else PROFIT
     cost_label = f"${net_cost:,.2f}" if abs(net_cost) >= 0.01 else "$0"
 
-    max_p = analysis["max_profit"]
-    max_l = analysis["max_loss"]
-    p_str = s["unlimited"] if analysis["profit_unlimited"] else f"${max_p:,.2f}"
-    l_str = s["unlimited"] if analysis["loss_unlimited"] else f"${max_l:,.2f}"
-
-    summary = html.Div([
+    summary_rows = [
         html.Div([html.Span(s["analysis_net_cost"] + ": ", style={"fontWeight": "600"}),
                   html.Span(cost_label, style={"color": cost_color, "fontWeight": "700"})],
                  style={"marginBottom": "6px"}),
         html.Div([html.Span(s["analysis_max_profit"] + ": ", style={"fontWeight": "600"}),
-                  html.Span(p_str, style={"color": PROFIT, "fontWeight": "700"})],
+                  html.Span(f"${analysis['max_profit']:,.2f}",
+                            style={"color": PROFIT, "fontWeight": "700"})],
                  style={"marginBottom": "6px"}),
         html.Div([html.Span(s["analysis_max_loss"] + ": ", style={"fontWeight": "600"}),
-                  html.Span(l_str, style={"color": LOSS, "fontWeight": "700"})],
+                  html.Span(f"${analysis['max_loss']:,.2f}",
+                            style={"color": LOSS, "fontWeight": "700"})],
                  style={"marginBottom": "6px"}),
-    ], style={"background": t["panel_alt"], "padding": "12px 16px",
-              "borderRadius": "8px", "marginBottom": "20px"})
+    ]
 
     win_ranges = analysis["win_ranges"]
     if win_ranges:
         win_text = " or ".join([f"${a:,.0f} – ${b:,.0f}" for a, b in win_ranges])
-        summary.children.append(html.Div([
+        summary_rows.append(html.Div([
             html.Span(s["analysis_win_zone"] + ": ", style={"fontWeight": "600"}),
             html.Span(win_text, style={"color": PROFIT, "fontWeight": "700"}),
         ], style={"marginBottom": "6px"}))
-        lose_text = ""
         if len(win_ranges) == 1:
             a, b = win_ranges[0]
             lose_text = f"< ${a:,.0f} or > ${b:,.0f}"
-        summary.children.append(html.Div([
-            html.Span(s["analysis_lose_zone"] + ": ", style={"fontWeight": "600"}),
-            html.Span(lose_text, style={"color": LOSS, "fontWeight": "700"}),
-        ], style={"marginBottom": "6px"}))
+            summary_rows.append(html.Div([
+                html.Span(s["analysis_lose_zone"] + ": ", style={"fontWeight": "600"}),
+                html.Span(lose_text, style={"color": LOSS, "fontWeight": "700"}),
+            ], style={"marginBottom": "6px"}))
 
-    body_children.append(summary)
+    body.append(html.Div(summary_rows, style={
+        "background": t["panel_alt"], "padding": "12px 16px",
+        "borderRadius": "8px", "marginBottom": "16px"}))
 
     bes = analysis["breakevens"]
     if bes:
-        body_children.append(html.H3(s["analysis_breakevens"], style={"fontSize": "15px"}))
+        body.append(html.H3(s["analysis_breakevens"], style={"fontSize": "15px"}))
         be_items = [html.Span(f"${be:,.2f}",
                               style={"background": t["panel_alt"], "padding": "4px 10px",
                                      "borderRadius": "6px", "marginRight": "8px",
@@ -1044,14 +1275,14 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol):
                                      "border": f"1px solid {STRIKE}",
                                      "color": STRIKE, "fontWeight": "600", "fontSize": "13px"})
                     for be in bes]
-        body_children.append(html.Div(be_items, style={"marginBottom": "20px"}))
+        body.append(html.Div(be_items, style={"marginBottom": "16px"}))
 
-    body_children.append(html.H3(s["analysis_chart"], style={"fontSize": "15px"}))
-    body_children.append(dcc.Graph(figure=analysis["chart"],
-                                   config={"displayModeBar": False},
-                                   style={"marginBottom": "20px", "height": "320px"}))
+    body.append(html.H3(s["analysis_chart"], style={"fontSize": "15px"}))
+    body.append(dcc.Graph(figure=analysis["chart"],
+                          config={"displayModeBar": False},
+                          style={"marginBottom": "16px", "height": "320px"}))
 
-    body_children.append(html.H3(s["analysis_scenarios"], style={"fontSize": "15px"}))
+    body.append(html.H3(s["analysis_scenarios"], style={"fontSize": "15px"}))
     scenario_rows = []
     for sc in analysis["scenarios"]:
         is_profit = sc["is_profit"]
@@ -1066,11 +1297,11 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol):
                       style={"color": result_color, "fontWeight": "700"}),
         ], style={"padding": "8px 12px", "borderBottom": f"1px solid {t['border']}",
                   "fontSize": "13px"}))
+    body.append(html.Div(scenario_rows, style={
+        "background": t["panel_alt"], "borderRadius": "8px",
+        "overflow": "hidden", "marginBottom": "12px"}))
 
-    body_children.append(html.Div(scenario_rows, style={
-        "background": t["panel_alt"], "borderRadius": "8px", "overflow": "hidden"}))
-
-    return modal_style, content_style, title_style, body_children
+    return modal_style, content_style, title_style, body
 
 
 @callback(Output("symbol-buttons", "children"),
@@ -1448,6 +1679,7 @@ def update_chart(legs, selected, symbol, theme):
           Output("manual-row", "style"),
           Output("legs-panel", "style"),
           Output("chart-panel", "style"),
+          Output("main-grid", "style"),
           Output("chain-grid", "className"),
           Output("theme-toggle", "style"),
           Output("theme-toggle", "children"),
@@ -1483,6 +1715,12 @@ def apply_theme(theme):
     legs_panel_style = {"padding": "12px 16px", "minHeight": "100px",
                         "maxHeight": "180px", "overflowY": "auto",
                         "borderTop": f"1px solid {t['border']}"}
+    main_grid_style = {
+        "display": "grid",
+        "gridTemplateColumns": "1.9fr 1.1fr",
+        "gap": "16px",
+        "padding": "16px 24px",
+    }
     button_style = {"fontSize": "18px", "padding": "8px 14px",
                     "borderRadius": "10px", "cursor": "pointer",
                     "border": f"1px solid {t['border']}",
@@ -1499,8 +1737,8 @@ def apply_theme(theme):
     icon = "☀️" if theme == "dark" else "🌙"
     return (root_style, header_style, row_style, expiry_style, preset_style,
             panel_style, grid_header_style, manual_row_style, legs_panel_style,
-            panel_style, grid_class, button_style, icon, button_style, btn_style,
-            analysis_btn_style)
+            panel_style, main_grid_style, grid_class, button_style, icon,
+            button_style, btn_style, analysis_btn_style)
 
 
 if __name__ == "__main__":
