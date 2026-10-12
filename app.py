@@ -1147,6 +1147,19 @@ app.layout = html.Div([
         html.Button(id="preset-cs", n_clicks=0, className="ds-preset"),
         html.Button(id="preset-ic", n_clicks=0, className="ds-preset"),
         html.Button(id="preset-st", n_clicks=0, className="ds-preset"),
+            html.Button(
+        "🔍 Analyze",
+        id="analyze-strike-btn",
+        n_clicks=0,
+        className="ds-preset",
+        style={
+            "background": "rgba(243,156,18,0.15)",
+            "color": "#f39c12",
+            "border": "1px solid rgba(243,156,18,0.5)",
+            "fontWeight": "700",
+            "marginLeft": "12px",
+        },
+    ),
         html.Span(id="presets-hint", className="ds-hint"),
     ], id="preset-row", style={"display": "flex", "alignItems": "center",
                                 "padding": "0 24px 12px 24px", "flexWrap": "wrap"}),
@@ -1161,12 +1174,12 @@ app.layout = html.Div([
             ], id="grid-header", style={"padding": "12px 16px"}),
 
             html.Div([
-                html.Div([
-                    html.Button(id="add-long-btn", n_clicks=0, className="ds-action"),
-                    html.Button(id="add-short-btn", n_clicks=0, className="ds-action"),
-                    html.Span(id="manual-hint", className="ds-hint"),
-                ], style={"display": "flex", "alignItems": "center"}),
-            ], id="manual-row", style={"padding": "0 16px 12px 16px"}),
+    html.Div([
+        html.Button(id="add-long-btn", n_clicks=0, className="ds-action"),
+        html.Button(id="add-short-btn", n_clicks=0, className="ds-action"),        
+        html.Span(id="manual-hint", className="ds-hint"),
+    ], style={"display": "flex", "alignItems": "center"}),
+], id="manual-row", style={"padding": "0 16px 12px 16px"}),
 
             dag.AgGrid(
                 id="chain-grid",
@@ -1182,33 +1195,9 @@ app.layout = html.Div([
                     {"field": "c_delta", "headerName": "C Δ", "minWidth": 60, "flex": 1, "sortable": True,
                      "valueFormatter": {"function": "params.value != null ? Number(params.value).toFixed(3) : ''"},
                      "cellStyle": {"function": "params.value == null ? {} : {color: '#9b59b6', fontWeight: 600}"}},
-                    {"field": "strike", "headerName": "STRIKE", "minWidth": 130, "flex": 1.4, "sortable": True,
-                     "cellRenderer": {"function": """
-                        function(params) {
-                            const strikeVal = params.value;
-                            const btn = document.createElement('button');
-                            btn.className = 'analyze-btn';
-                            btn.innerText = '🔍';
-                            btn.title = 'Analyze';
-                            btn.onclick = function(e) {
-                                e.stopPropagation();
-                                window.dash_clientside.set_props('selected-strike-store', {data: strikeVal});
-                            };
-                            const span = document.createElement('span');
-                            span.innerText = '$' + strikeVal.toLocaleString();
-                            span.style.color = '#f39c12';
-                            span.style.fontWeight = '800';
-                            span.style.fontSize = '13px';
-                            span.style.marginRight = '6px';
-                            const wrapper = document.createElement('span');
-                            wrapper.style.display = 'flex';
-                            wrapper.style.alignItems = 'center';
-                            wrapper.style.gap = '4px';
-                            wrapper.appendChild(span);
-                            wrapper.appendChild(btn);
-                            return wrapper;
-                        }
-                     """}},
+                    {"field": "strike", "headerName": "STRIKE", "minWidth": 100, "flex": 1.2, "sortable": True,
+                     "valueFormatter": {"function": "params.value ? '$' + params.value.toLocaleString() : ''"},
+                     "cellStyle": {"function": "{color: '#f39c12', fontWeight: 800, fontSize: '13px', background: 'rgba(243,156,18,0.08)'}"}},
                     {"field": "p_delta", "headerName": "P Δ", "minWidth": 60, "flex": 1, "sortable": True,
                      "valueFormatter": {"function": "params.value != null ? Number(params.value).toFixed(3) : ''"},
                      "cellStyle": {"function": "params.value == null ? {} : {color: '#9b59b6', fontWeight: 600}"}},
@@ -1392,6 +1381,22 @@ def toggle_strike_modal(strike, n):
         return True
     return False
 
+    # Analyze button — reads selected row and sets the strike
+@callback(
+    Output("selected-strike-store", "data", allow_duplicate=True),
+    Input("analyze-strike-btn", "n_clicks"),
+    State("chain-grid", "selectedRows"),
+    prevent_initial_call=True,
+)
+def on_analyze_click(n, selected_rows):
+    if not n or not selected_rows:
+        return no_update
+    row = selected_rows[0]
+    strike_val = row.get("strike")
+    if strike_val is None:
+        return no_update
+    return strike_val
+
 
 @callback(
     Output("app-title", "children"),
@@ -1562,7 +1567,7 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
     def make_add_btn(label, strike_val, opt_type, side, className):
         return html.Button(
             label,
-            id={"type": "add-btn", "strike": strike_val, "opt": opt_type, "side": side},
+            id={"type": "add-btn", "strike": str(strike_val), "opt": opt_type, "side": side},
             n_clicks=0,
             className=f"add-btn {className}",
         )
@@ -1598,7 +1603,7 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
 def add_from_modal(n, legs, rows):
     if not n or not ctx.triggered_id:
         return no_update
-    strike_val = ctx.triggered_id["strike"]
+    strike_val = float(ctx.triggered_id["strike"])
     opt = ctx.triggered_id["opt"]
     side = ctx.triggered_id["side"]
     side_val = 1 if side == "long" else -1
