@@ -1,9 +1,7 @@
 """
-Options Dashboard v2 — Stage 20
-+ Crypto contract size = 0.1 BTC (Deribit minimum)
-+ Stocks = 100 shares
-+ Options-Lab-style analysis modal (Outcomes, Break-even vs full, Warnings, Execution)
-+ Full bilingual EL/EN
+Options Dashboard v2 — Stage 21
++ Live BTC/ETH price in header center
++ "Outcomes at Expiration" section for ALL presets (not just Covered Call)
 """
 from dash import (
     Dash, html, dcc, callback, ctx,
@@ -52,7 +50,7 @@ STRINGS = {
         "analysis_no_legs": "⚠️ Δεν έχεις legs. Κλίκαρε γραμμή + **+ LONG / + SHORT** ή διάλεξε preset.",
         "analysis_your_legs": "🎯 Τα legs σου",
         "analysis_chart": "📈 Διάγραμμα Κέρδους / Ζημιάς",
-        "analysis_scenarios": "🎲 Σενάρια",
+        "analysis_scenarios": "🎲 Όλα τα Σενάρια",
         "analysis_summary": "💰 Σύνοψη",
         "analysis_max_profit": "Μέγιστο κέρδος",
         "analysis_max_loss": "Μέγιστη ζημιά",
@@ -87,17 +85,15 @@ STRINGS = {
         "greek_vega_desc": "Πόσο αλλάζει η τιμή αν το IV κινηθεί 1%.",
         "greeks_note": "Crypto & Stocks: Black-Scholes από το IV.",
         "outcomes_title": "📊 Αποτελέσματα στη Λήξη",
-        "outcomes_above": "Αν {sym} ≥ ${strike}",
-        "outcomes_below": "Αν {sym} < ${strike}",
         "outcomes_prob": "prob",
         "even_title": "📍 Σημεία Ισορροπίας",
         "even_vs_usd": "Ίσα με full USD",
         "even_vs_crypto": "Ίσα με full BTC",
         "even_vs_stock": "Ίσα με full shares",
         "min_position": "Ελάχιστη θέση",
-        "vs_full_usd": "ίδιο με full USD",
-        "vs_full_crypto": "ίδιο με full BTC",
-        "vs_full_stock": "ίδιο με full shares",
+        "outcome_above": "Αν {sym} ≥ ${strike}",
+        "outcome_below": "Αν {sym} < ${strike}",
+        "outcome_between": "Αν ${lo} ≤ {sym} < ${hi}",
     },
     "en": {
         "title": "📊 Options Dashboard",
@@ -125,7 +121,7 @@ STRINGS = {
         "analysis_no_legs": "⚠️ No legs. Click a row + **+ LONG / + SHORT** or pick a preset.",
         "analysis_your_legs": "🎯 Your legs",
         "analysis_chart": "📈 Profit / Loss Chart",
-        "analysis_scenarios": "🎲 Scenarios",
+        "analysis_scenarios": "🎲 All Scenarios",
         "analysis_summary": "💰 Summary",
         "analysis_max_profit": "Max profit",
         "analysis_max_loss": "Max loss",
@@ -160,17 +156,15 @@ STRINGS = {
         "greek_vega_desc": "How much the price changes if IV moves 1%.",
         "greeks_note": "Crypto & Stocks: Black-Scholes from IV.",
         "outcomes_title": "📊 Outcomes at Expiration",
-        "outcomes_above": "If {sym} ≥ ${strike}",
-        "outcomes_below": "If {sym} < ${strike}",
         "outcomes_prob": "prob",
         "even_title": "📍 Break-even Points",
         "even_vs_usd": "Even vs full USD",
         "even_vs_crypto": "Even vs full BTC",
         "even_vs_stock": "Even vs full shares",
         "min_position": "Minimum position",
-        "vs_full_usd": "even with full USD",
-        "vs_full_crypto": "even with full BTC",
-        "vs_full_stock": "even with full shares",
+        "outcome_above": "If {sym} ≥ ${strike}",
+        "outcome_below": "If {sym} < ${strike}",
+        "outcome_between": "If ${lo} ≤ {sym} < ${hi}",
     },
 }
 
@@ -204,8 +198,8 @@ GREEK = "#9b59b6"
 CRYPTO_SYMBOLS = {"BTC", "ETH"}
 ALL_SYMBOLS = ["BTC", "ETH", "AAPL", "SPY", "TSLA", "NVDA", "MSFT", "QQQ"]
 
-CRYPTO_CONTRACT = 0.1     # 1 option = 0.1 BTC/ETH
-STOCK_CONTRACT = 100      # 1 option = 100 shares
+CRYPTO_CONTRACT = 0.1
+STOCK_CONTRACT = 100
 
 _stock_session = curl_requests.Session(impersonate="chrome")
 _stock_session.verify = False
@@ -235,12 +229,8 @@ def bs_greeks(S, K, T, r, sigma, opt_type):
                      + r * K * math.exp(-r * T) * _norm_cdf(-d2)) / 365.0
         gamma = _norm_pdf(d1) / (S * sigma * math.sqrt(T))
         vega = S * _norm_pdf(d1) * math.sqrt(T) / 100.0
-        return {
-            "delta": round(delta, 4),
-            "gamma": round(gamma, 6),
-            "theta": round(theta, 4),
-            "vega": round(vega, 4),
-        }
+        return {"delta": round(delta, 4), "gamma": round(gamma, 6),
+                "theta": round(theta, 4), "vega": round(vega, 4)}
     except Exception:
         return {"delta": None, "gamma": None, "theta": None, "vega": None}
 
@@ -254,6 +244,17 @@ def bs_prob_itm(S, K, T, r, sigma, opt_type):
             return _norm_cdf(d2)
         else:
             return _norm_cdf(-d2)
+    except Exception:
+        return None
+
+
+def bs_prob_below(S, K, T, r, sigma):
+    """Probability that spot ends below K (risk-neutral)."""
+    try:
+        if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+            return None
+        d2 = (math.log(S / K) + (r - 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
+        return _norm_cdf(-d2)
     except Exception:
         return None
 
@@ -371,25 +372,19 @@ def get_crypto_chain(currency, expiry_label, limit=30):
         if iv_dec and spot and T > 0:
             greeks = bs_greeks(spot, strike, T, 0.045, iv_dec, opt_type)
 
-        # Capital = ask price * 0.1 BTC
         capital_long = ask_usd * CRYPTO_CONTRACT if ask_usd else None
 
         rows.append({
-            "instrument": name,
-            "type": opt_type,
-            "strike": strike,
-            "bid": bid_usd,
-            "ask": ask_usd,
+            "instrument": name, "type": opt_type, "strike": strike,
+            "bid": bid_usd, "ask": ask_usd,
             "premium": round(premium, 2) if premium else None,
             "capital": round(capital_long, 2) if capital_long else None,
             "prob_itm": round(prob, 4) if prob is not None else None,
-            "delta": greeks["delta"],
-            "gamma": greeks["gamma"],
-            "theta": greeks["theta"],
-            "vega": greeks["vega"],
+            "iv_value": iv_dec,  # for probability calc, decimal
+            "delta": greeks["delta"], "gamma": greeks["gamma"],
+            "theta": greeks["theta"], "vega": greeks["vega"],
             "iv": iv_pct,
-            "volume": item.get("volume"),
-            "oi": item.get("open_interest"),
+            "volume": item.get("volume"), "oi": item.get("open_interest"),
         })
     cache_set(key, rows, ttl=60)
     return rows
@@ -531,19 +526,14 @@ def _stock_row(r, symbol, expiry, opt_type, spot, T, r_rate):
     suffix = "C" if opt_type == "call" else "P"
     return {
         "instrument": f"{symbol}-{expiry}-{strike}-{suffix}",
-        "type": opt_type,
-        "strike": strike,
-        "bid": bid,
-        "ask": ask,
+        "type": opt_type, "strike": strike, "bid": bid, "ask": ask,
         "premium": round(premium, 2),
         "capital": round(capital, 2) if capital else None,
         "prob_itm": round(prob, 4) if prob is not None else None,
-        "delta": greeks["delta"],
-        "gamma": greeks["gamma"],
-        "theta": greeks["theta"],
-        "vega": greeks["vega"],
-        "iv": iv_pct,
-        "volume": int(volume),
+        "iv_value": iv_dec,
+        "delta": greeks["delta"], "gamma": greeks["gamma"],
+        "theta": greeks["theta"], "vega": greeks["vega"],
+        "iv": iv_pct, "volume": int(volume),
         "oi": int(_clean(r.get("openInterest"))),
     }
 
@@ -669,7 +659,7 @@ def analyze_strategy(spot, legs, symbol, lang, chain_rows=None):
         height=320,
     )
 
-    # Execution instructions (with 0.1 BTC or 100 shares)
+    # Execution
     exec_steps = []
     capital_usd = 0.0
     capital_crypto = 0.0
@@ -699,64 +689,236 @@ def analyze_strategy(spot, legs, symbol, lang, chain_rows=None):
             if leg["side"] > 0:
                 capital_usd += abs(cost)
 
-    # Outcomes at expiration (Options-Lab style)
+    # ============================================================
+    # OUTCOMES AT EXPIRATION — for ALL presets
+    # ============================================================
     outcomes = []
-    if len(legs) == 2:
-        has_underlying = any(l["type"] == "underlying" and l["side"] > 0 for l in legs)
-        has_short_call = any(l["type"] == "call" and l["side"] < 0 for l in legs)
-        if has_underlying and has_short_call:
-            short_call = next(l for l in legs if l["type"] == "call" and l["side"] < 0)
-            k = short_call["strike"]
-            prem_btc = short_call["premium"] / spot if spot else 0  # convert USD premium to BTC
 
-            # Scenario 1: price >= strike (call exercised)
-            payoff_above = payoff(k * 1.01)  # slightly above strike
-            pnl_pct_above = (payoff_above / capital_usd * 100) if capital_usd else 0
-            prob_above = None
-            if chain_rows:
-                for r in chain_rows:
-                    if r["instrument"] == short_call["instrument"]:
-                        prob_above = r.get("prob_itm")
-                        break
-            if prob_above is None:
-                prob_above = 0.5
+    # Detect pattern
+    has_underlying_long = any(l["type"] == "underlying" and l["side"] > 0 for l in legs)
+    has_underlying_short = any(l["type"] == "underlying" and l["side"] < 0 for l in legs)
+    short_calls = [l for l in legs if l["type"] == "call" and l["side"] < 0]
+    long_calls = [l for l in legs if l["type"] == "call" and l["side"] > 0]
+    short_puts = [l for l in legs if l["type"] == "put" and l["side"] < 0]
+    long_puts = [l for l in legs if l["type"] == "put" and l["side"] > 0]
 
+    # Helper: get IV for a leg from chain_rows
+    def get_iv_for(inst):
+        if not chain_rows:
+            return None
+        for r in chain_rows:
+            if r.get("instrument") == inst:
+                return r.get("iv_value")
+        return None
+
+    # Helper: compute probability that spot ends below X
+    def prob_below(X):
+        # Use the IV of the closest OTM option as approximation
+        ivs = []
+        if chain_rows:
+            for r in chain_rows:
+                if r.get("iv_value"):
+                    ivs.append(r["iv_value"])
+        if not ivs:
+            return None
+        avg_iv = sum(ivs) / len(ivs)
+        T = 0.1  # rough approximation (30-60 days)
+        return bs_prob_below(spot, X, T, 0.045, avg_iv)
+
+    # ========== COVERED CALL ==========
+    if has_underlying_long and len(short_calls) == 1 and not long_calls and not long_puts and not short_puts:
+        sc = short_calls[0]
+        k = sc["strike"]
+        prem_btc = sc["premium"] / spot if spot else 0
+        outcome_above = payoff(k * 1.01)
+        pnl_pct_above = (outcome_above / capital_usd * 100) if capital_usd else 0
+        prob_above = get_iv_for(sc["instrument"])
+        # Use prob_itm from chain if available
+        prob_itm = None
+        if chain_rows:
+            for r in chain_rows:
+                if r["instrument"] == sc["instrument"]:
+                    prob_itm = r.get("prob_itm")
+                    break
+        if prob_itm is None:
+            prob_itm = 0.5
+        outcomes.append({
+            "label": s["outcome_above"].format(sym=symbol, strike=f"{k:,.0f}"),
+            "pnl_usd": outcome_above,
+            "pnl_pct": pnl_pct_above,
+            "prob": prob_itm,
+        })
+        outcome_below = prem_btc * spot * multiplier
+        pnl_pct_below = (outcome_below / capital_usd * 100) if capital_usd else 0
+        outcomes.append({
+            "label": s["outcome_below"].format(sym=symbol, strike=f"{k:,.0f}"),
+            "pnl_usd": outcome_below,
+            "pnl_pct": pnl_pct_below,
+            "prob": 1 - prob_itm,
+        })
+
+    # ========== CALL SPREAD (Bull) ==========
+    elif len(long_calls) == 1 and len(short_calls) == 1 and not has_underlying_long and not long_puts and not short_puts:
+        lc = long_calls[0]
+        sc = short_calls[0]
+        k_long = lc["strike"]
+        k_short = sc["strike"]
+        lo = min(k_long, k_short)
+        hi = max(k_long, k_short)
+        # Above hi
+        above_pnl = payoff(hi * 1.01)
+        above_pct = (above_pnl / abs(net_cost) * 100) if net_cost else 0
+        # Prob above hi
+        prob_hi = None
+        if chain_rows:
+            for r in chain_rows:
+                if r["instrument"] == sc["instrument"]:
+                    prob_hi = r.get("prob_itm")
+                    break
+        if prob_hi is None:
+            prob_hi = 0.5
+        outcomes.append({
+            "label": s["outcome_above"].format(sym=symbol, strike=f"{hi:,.0f}"),
+            "pnl_usd": above_pnl,
+            "pnl_pct": above_pct,
+            "prob": prob_hi,
+        })
+        # Between lo and hi
+        mid = (lo + hi) / 2
+        mid_pnl = payoff(mid)
+        mid_pct = (mid_pnl / abs(net_cost) * 100) if net_cost else 0
+        outcomes.append({
+            "label": s["outcome_between"].format(lo=f"{lo:,.0f}", hi=f"{hi:,.0f}", sym=symbol),
+            "pnl_usd": mid_pnl,
+            "pnl_pct": mid_pct,
+            "prob": None,
+        })
+        # Below lo
+        below_pnl = payoff(lo * 0.99)
+        below_pct = (below_pnl / abs(net_cost) * 100) if net_cost else 0
+        prob_lo = None
+        if chain_rows:
+            for r in chain_rows:
+                if r["instrument"] == lc["instrument"]:
+                    prob_lo = r.get("prob_itm")
+                    break
+        if prob_lo is None:
+            prob_lo = 0.5
+        outcomes.append({
+            "label": s["outcome_below"].format(sym=symbol, strike=f"{lo:,.0f}"),
+            "pnl_usd": below_pnl,
+            "pnl_pct": below_pct,
+            "prob": 1 - prob_lo,
+        })
+
+    # ========== IRON CONDOR ==========
+    elif len(short_calls) == 1 and len(long_calls) == 1 and len(short_puts) == 1 and len(long_puts) == 1:
+        sc = short_calls[0]
+        lc = long_calls[0]
+        sp = short_puts[0]
+        lp = long_puts[0]
+        ks_call = sc["strike"]
+        kl_call = lc["strike"]
+        ks_put = sp["strike"]
+        kl_put = lp["strike"]
+        lo_put = min(ks_put, kl_put)
+        hi_call = max(ks_call, kl_call)
+        # Between short strikes = profit zone
+        mid = (ks_put + ks_call) / 2
+        mid_pnl = payoff(mid)
+        mid_pct = (mid_pnl / abs(net_cost) * 100) if net_cost else 0
+        outcomes.append({
+            "label": s["outcome_between"].format(lo=f"{ks_put:,.0f}", hi=f"{ks_call:,.0f}", sym=symbol),
+            "pnl_usd": mid_pnl,
+            "pnl_pct": mid_pct,
+            "prob": 0.5,
+        })
+        # Above long call
+        above_pnl = payoff(hi_call * 1.01)
+        above_pct = (above_pnl / abs(net_cost) * 100) if net_cost else 0
+        outcomes.append({
+            "label": s["outcome_above"].format(sym=symbol, strike=f"{hi_call:,.0f}"),
+            "pnl_usd": above_pnl,
+            "pnl_pct": above_pct,
+            "prob": 0.15,
+        })
+        # Below long put
+        below_pnl = payoff(lo_put * 0.99)
+        below_pct = (below_pnl / abs(net_cost) * 100) if net_cost else 0
+        outcomes.append({
+            "label": s["outcome_below"].format(sym=symbol, strike=f"{lo_put:,.0f}"),
+            "pnl_usd": below_pnl,
+            "pnl_pct": below_pct,
+            "prob": 0.15,
+        })
+
+    # ========== STRADDLE ==========
+    elif len(long_calls) == 1 and len(long_puts) == 1 and not has_underlying_long and not short_calls and not short_puts:
+        lc = long_calls[0]
+        lp = long_puts[0]
+        # Use spot as the straddle center
+        strike = lc["strike"]
+        up = strike * 1.05
+        down = strike * 0.95
+        up_pnl = payoff(up)
+        up_pct = (up_pnl / abs(net_cost) * 100) if net_cost else 0
+        down_pnl = payoff(down)
+        down_pct = (down_pnl / abs(net_cost) * 100) if net_cost else 0
+        mid_pnl = payoff(strike)
+        mid_pct = (mid_pnl / abs(net_cost) * 100) if net_cost else 0
+        outcomes.append({
+            "label": s["outcome_above"].format(sym=symbol, strike=f"{up:,.0f}"),
+            "pnl_usd": up_pnl,
+            "pnl_pct": up_pct,
+            "prob": 0.35,
+        })
+        outcomes.append({
+            "label": s["outcome_below"].format(sym=symbol, strike=f"{down:,.0f}"),
+            "pnl_usd": down_pnl,
+            "pnl_pct": down_pct,
+            "prob": 0.35,
+        })
+        outcomes.append({
+            "label": f"Αν {symbol} ≈ ${strike:,.0f}" if lang == "el" else f"If {symbol} ≈ ${strike:,.0f}",
+            "pnl_usd": mid_pnl,
+            "pnl_pct": mid_pct,
+            "prob": 0.30,
+        })
+
+    # ========== FALLBACK: Generic 3 scenarios ==========
+    else:
+        # Find the min and max strikes
+        if strikes:
+            lo = min(strikes)
+            hi = max(strikes)
+            above_pnl = payoff(hi * 1.10)
+            above_pct = (above_pnl / abs(net_cost) * 100) if net_cost else 0
+            below_pnl = payoff(lo * 0.90)
+            below_pct = (below_pnl / abs(net_cost) * 100) if net_cost else 0
+            mid_pnl = payoff(spot)
+            mid_pct = (mid_pnl / abs(net_cost) * 100) if net_cost else 0
             outcomes.append({
-                "label": s["outcomes_above"].format(sym=symbol, strike=f"{k:,.0f}"),
-                "pnl_usd": payoff_above,
-                "pnl_pct": pnl_pct_above,
-                "prob": prob_above,
-                "extra": f"+{prem_btc:.4f} BTC",
-                "color": PROFIT,
+                "label": s["outcome_above"].format(sym=symbol, strike=f"{hi:,.0f}"),
+                "pnl_usd": above_pnl, "pnl_pct": above_pct, "prob": 0.33,
+            })
+            outcomes.append({
+                "label": f"{symbol} ≈ ${spot:,.0f}",
+                "pnl_usd": mid_pnl, "pnl_pct": mid_pct, "prob": 0.34,
+            })
+            outcomes.append({
+                "label": s["outcome_below"].format(sym=symbol, strike=f"{lo:,.0f}"),
+                "pnl_usd": below_pnl, "pnl_pct": below_pct, "prob": 0.33,
             })
 
-            # Scenario 2: price < strike (call expires worthless)
-            payoff_below = prem_btc * spot * (CRYPTO_CONTRACT if is_crypto else STOCK_CONTRACT)
-            pnl_pct_below = (payoff_below / capital_usd * 100) if capital_usd else 0
-            outcomes.append({
-                "label": s["outcomes_below"].format(sym=symbol, strike=f"{k:,.0f}"),
-                "pnl_usd": payoff_below,
-                "pnl_pct": pnl_pct_below,
-                "prob": 1 - prob_above,
-                "extra": f"+{prem_btc:.4f} BTC",
-                "color": PROFIT,
-            })
-
-    # Break-even vs full USD/BTC
+    # Break-even vs full
     even_vs = {}
-    if len(legs) == 2:
-        has_underlying = any(l["type"] == "underlying" and l["side"] > 0 for l in legs)
-        has_short_call = any(l["type"] == "call" and l["side"] < 0 for l in legs)
-        if has_underlying and has_short_call:
-            short_call = next(l for l in legs if l["type"] == "call" and l["side"] < 0)
-            k = short_call["strike"]
-            p = short_call["premium"]  # USD premium per unit
-            # Even vs USD: strike - premium
-            even_vs["usd"] = round(k - p, 2)
-            # Even vs BTC: strike + premium
-            even_vs["crypto"] = round(k + p, 2)
+    if has_underlying_long and len(short_calls) == 1:
+        sc = short_calls[0]
+        k = sc["strike"]
+        p = sc["premium"]
+        even_vs["usd"] = round(k - p, 2)
+        even_vs["crypto"] = round(k + p, 2)
 
-    # Warnings
     warnings = []
     if even_vs:
         k = even_vs.get("usd")
@@ -935,6 +1097,18 @@ app.index_string = """
                 border-left: 2px solid #30363d;
             }
 
+            .live-price {
+                font-size: 22px;
+                font-weight: 700;
+                color: #2ecc71;
+                font-family: 'Courier New', monospace;
+                letter-spacing: 1px;
+                padding: 6px 18px;
+                background: rgba(46, 204, 113, 0.08);
+                border-radius: 10px;
+                border: 1px solid rgba(46, 204, 113, 0.3);
+            }
+
             .exec-card {
                 background: rgba(31, 111, 235, 0.08);
                 border-left: 3px solid #1f6feb;
@@ -1038,14 +1212,25 @@ app.layout = html.Div([
             html.P(id="app-subtitle",
                    style={"margin": "4px 0 0 0", "fontSize": "12px"}),
         ], style={"flex": "1"}),
-        html.Button("🇬🇷 / 🇬🇧", id="lang-toggle", n_clicks=0, className="ds-theme"),
-        html.Button("☀️", id="theme-toggle", n_clicks=0, className="ds-theme",
-                    style={"marginLeft": "8px"}),
-        html.Button(id="about-btn", n_clicks=0, className="ds-preset",
-                    style={"marginLeft": "12px"}),
-        html.Button(id="analysis-btn", n_clicks=0, className="ds-preset",
-                    style={"marginLeft": "8px"}),
-    ], id="header", style={"display": "flex", "alignItems": "center", "padding": "16px 24px"}),
+
+        # Live price — center of header
+        html.Div([
+            html.Span(id="live-price-display", className="live-price",
+                      children="Loading..."),
+        ], style={"flex": "1", "display": "flex", "justifyContent": "center"}),
+
+        html.Div([
+            html.Button("🇬🇷 / 🇬🇧", id="lang-toggle", n_clicks=0, className="ds-theme"),
+            html.Button("☀️", id="theme-toggle", n_clicks=0, className="ds-theme",
+                        style={"marginLeft": "8px"}),
+            html.Button(id="about-btn", n_clicks=0, className="ds-preset",
+                        style={"marginLeft": "12px"}),
+            html.Button(id="analysis-btn", n_clicks=0, className="ds-preset",
+                        style={"marginLeft": "8px"}),
+        ], style={"flex": "1", "display": "flex", "justifyContent": "flex-end",
+                  "alignItems": "center"}),
+    ], id="header", style={"display": "flex", "alignItems": "center",
+                            "padding": "16px 24px", "gap": "16px"}),
 
     html.Div([
         html.Span(id="symbol-label",
@@ -1199,6 +1384,7 @@ app.layout = html.Div([
     ], id="analysis-modal", style={"display": "none"}),
 
     dcc.Interval(id="tick", interval=30000, n_intervals=0),
+    dcc.Interval(id="price-tick", interval=10000, n_intervals=0),
     dcc.Store(id="theme-store", data="dark"),
     dcc.Store(id="lang-store", data="el"),
     dcc.Store(id="symbol-store", data="BTC"),
@@ -1214,6 +1400,29 @@ app.layout = html.Div([
     "fontFamily": "Inter, -apple-system, Segoe UI, sans-serif",
     "background": THEMES["dark"]["bg"], "color": THEMES["dark"]["text"],
 })
+
+
+# ============================================================
+# LIVE PRICE CALLBACK
+# ============================================================
+@callback(
+    Output("live-price-display", "children"),
+    Input("price-tick", "n_intervals"),
+    Input("symbol-store", "data"),
+    Input("theme-store", "data"),
+)
+def update_live_price(_, symbol, theme):
+    symbol = symbol or "BTC"
+    if symbol in CRYPTO_SYMBOLS:
+        price = get_crypto_spot(symbol)
+        if price:
+            return f"{symbol}: ${price:,.2f}"
+        return f"{symbol}: —"
+    else:
+        price = get_stock_spot(symbol)
+        if price:
+            return f"{symbol}: ${price:,.2f}"
+        return f"{symbol}: —"
 
 
 # CALLBACKS
@@ -1308,7 +1517,7 @@ def render_about_modal(is_open, theme, lang):
     if lang == "el":
         body = """
 ### 🛡️ Covered Call
-Αγοράζεις **0.1 BTC** (ή 100 shares), πουλάς OTM call.
+Αγοράζεις 0.1 BTC, πουλάς OTM call.
 
 ### ↗️ Call Spread
 Long call + short πιο ψηλό call.
@@ -1320,14 +1529,11 @@ Long call + short πιο ψηλό call.
 Long call + long put στο ίδιο strike.
 
 ### 📐 Greeks
-- **Δ Delta** — Πόσο αλλάζει η τιμή αν το spot κινηθεί $1
-- **Γ Gamma** — Πόσο αλλάζει το Delta αν το spot κινηθεί $1
-- **Θ Theta** — Πόσο χάνει η αξία κάθε μέρα
-- **V Vega** — Πόσο αλλάζει η τιμή αν το IV κινηθεί 1%
+- Δ Delta, Γ Gamma, Θ Theta, V Vega
 
 ### 📏 Contract sizes
-- **Crypto:** 1 συμβόλαιο = **0.1 BTC**
-- **Stocks:** 1 συμβόλαιο = **100 shares**
+- Crypto: 1 συμβόλαιο = **0.1 BTC**
+- Stocks: 1 συμβόλαιο = **100 shares**
 
 ---
 💡 Πρόσθεσε legs και πάτα **📊 Ανάλυση Στρατηγικής**.
@@ -1335,7 +1541,7 @@ Long call + long put στο ίδιο strike.
     else:
         body = """
 ### 🛡️ Covered Call
-Buy **0.1 BTC** (or 100 shares), sell OTM call.
+Buy 0.1 BTC, sell OTM call.
 
 ### ↗️ Call Spread
 Long call + short higher call.
@@ -1347,14 +1553,11 @@ Long call + short higher call.
 Long call + long put at same strike.
 
 ### 📐 Greeks
-- **Δ Delta** — How much price changes if spot moves $1
-- **Γ Gamma** — How much Delta changes if spot moves $1
-- **Θ Theta** — How much value is lost each day
-- **V Vega** — How much price changes if IV moves 1%
+- Δ Delta, Γ Gamma, Θ Theta, V Vega
 
 ### 📏 Contract sizes
-- **Crypto:** 1 contract = **0.1 BTC**
-- **Stocks:** 1 contract = **100 shares**
+- Crypto: 1 contract = **0.1 BTC**
+- Stocks: 1 contract = **100 shares**
 
 ---
 💡 Add legs and press **📊 Strategy Analysis**.
@@ -1409,21 +1612,21 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol, chain_rows):
 
     body = []
 
-    # ===== Outcomes at Expiration (Options Lab style) =====
+    # ===== Outcomes at Expiration (ALL presets) =====
     if analysis["outcomes"]:
         body.append(html.H3(s["outcomes_title"],
                             style={"fontSize": "15px", "marginTop": "0"}))
         outcome_rows = []
         for o in analysis["outcomes"]:
             pnl_color = PROFIT if o["pnl_usd"] >= 0 else LOSS
+            prob_text = f"({o['prob']*100:.0f}% {s['outcomes_prob']})" if o["prob"] is not None else ""
             outcome_rows.append(html.Div([
                 html.Span(o["label"], className="outcome-label",
                           style={"fontWeight": "600", "color": t["text"]}),
                 html.Span(f"${o['pnl_usd']:+,.2f} ({o['pnl_pct']:+.2f}%)",
                           className="outcome-pnl",
                           style={"color": pnl_color}),
-                html.Span(f"({o['prob']*100:.0f}% {s['outcomes_prob']})",
-                          className="outcome-prob"),
+                html.Span(prob_text, className="outcome-prob"),
             ], className="outcome-row"))
         body.append(html.Div(outcome_rows, style={
             "background": t["panel_alt"], "borderRadius": "8px",
@@ -1435,10 +1638,9 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol, chain_rows):
         even_rows = []
         if "usd" in analysis["even_vs"]:
             v = analysis["even_vs"]["usd"]
-            label = s["even_vs_usd"]
             pct = (v / spot - 1) * 100
             even_rows.append(html.Div([
-                html.Span(f"{label}: ", style={"color": t["muted"]}),
+                html.Span(f"{s['even_vs_usd']}: ", style={"color": t["muted"]}),
                 html.Span(f"${v:,.2f}", style={"fontWeight": "700", "color": WARN}),
                 html.Span(f" ({pct:+.1f}%)",
                           style={"color": t["muted"], "fontSize": "12px", "marginLeft": "6px"}),
@@ -1454,13 +1656,11 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol, chain_rows):
                           style={"color": t["muted"], "fontSize": "12px", "marginLeft": "6px"}),
             ], style={"padding": "6px 0"}))
 
-        # Min position
-        min_pos_label = s["min_position"]
         capital_usd = analysis["capital_usd"]
         capital_crypto = analysis["capital_crypto"]
         if analysis["is_crypto"] and capital_crypto > 0:
             even_rows.append(html.Div([
-                html.Span(f"{min_pos_label}: ", style={"color": t["muted"]}),
+                html.Span(f"{s['min_position']}: ", style={"color": t["muted"]}),
                 html.Span(f"${capital_usd:,.2f}", style={"fontWeight": "700", "color": ACCENT}),
                 html.Span(f" ({capital_crypto:.3f} BTC)",
                           style={"color": t["muted"], "fontSize": "12px", "marginLeft": "6px"}),
@@ -1497,10 +1697,8 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol, chain_rows):
     if chain_rows:
         for r in chain_rows:
             greeks_lookup[r.get("instrument")] = {
-                "delta": r.get("delta"),
-                "gamma": r.get("gamma"),
-                "theta": r.get("theta"),
-                "vega": r.get("vega"),
+                "delta": r.get("delta"), "gamma": r.get("gamma"),
+                "theta": r.get("theta"), "vega": r.get("vega"),
             }
 
     greek_rows = []
@@ -1553,7 +1751,7 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol, chain_rows):
         ], className="greek-card")
         body.append(greek_card)
 
-    # ===== Execution Instructions =====
+    # ===== Execution =====
     body.append(html.H3(s["exec_title"], style={"fontSize": "15px"}))
     exec_rows = []
     for step in analysis["exec_steps"]:
@@ -1607,14 +1805,6 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol, chain_rows):
                  style={"marginBottom": "6px"}),
     ]
 
-    win_ranges = analysis["win_ranges"]
-    if win_ranges:
-        win_text = " or ".join([f"${a:,.0f} – ${b:,.0f}" for a, b in win_ranges])
-        summary_rows.append(html.Div([
-            html.Span(s["analysis_win_zone"] + ": ", style={"fontWeight": "600"}),
-            html.Span(win_text, style={"color": PROFIT, "fontWeight": "700"}),
-        ], style={"marginBottom": "6px"}))
-
     body.append(html.Div(summary_rows, style={
         "background": t["panel_alt"], "padding": "12px 16px",
         "borderRadius": "8px", "marginBottom": "16px"}))
@@ -1625,7 +1815,7 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol, chain_rows):
                           config={"displayModeBar": False},
                           style={"marginBottom": "16px", "height": "320px"}))
 
-    # ===== Scenarios =====
+    # ===== All Scenarios =====
     body.append(html.H3(s["analysis_scenarios"], style={"fontSize": "15px"}))
     scenario_rows = []
     for sc in analysis["scenarios"]:
@@ -2030,6 +2220,7 @@ def update_chart(legs, selected, symbol, theme):
           Output("lang-toggle", "style"),
           Output("about-btn", "style"),
           Output("analysis-btn", "style"),
+          Output("live-price-display", "style"),
           Input("theme-store", "data"),
           prevent_initial_call=False)
 def apply_theme(theme):
@@ -2039,7 +2230,7 @@ def apply_theme(theme):
                   "background": t["bg"], "color": t["text"]}
     header_style = {"display": "flex", "alignItems": "center",
                     "padding": "16px 24px", "background": t["panel"],
-                    "borderBottom": f"1px solid {t['border']}"}
+                    "borderBottom": f"1px solid {t['border']}", "gap": "16px"}
     row_style = {"display": "flex", "alignItems": "center",
                  "padding": "12px 24px 0 24px", "flexWrap": "wrap",
                  "background": t["bg"], "color": t["text"]}
@@ -2077,12 +2268,18 @@ def apply_theme(theme):
                           "color": t["text"], "border": f"1px solid {t['border']}",
                           "padding": "9px 14px", "borderRadius": "8px",
                           "fontSize": "12px", "fontWeight": "600", "cursor": "pointer"}
+    live_price_style = {
+        "fontSize": "22px", "fontWeight": "700", "color": PROFIT,
+        "fontFamily": "'Courier New', monospace", "letterSpacing": "1px",
+        "padding": "6px 18px", "background": "rgba(46, 204, 113, 0.08)",
+        "borderRadius": "10px", "border": "1px solid rgba(46, 204, 113, 0.3)",
+    }
     grid_class = t["grid_theme"]
     icon = "☀️" if theme == "dark" else "🌙"
     return (root_style, header_style, row_style, expiry_style, preset_style,
             panel_style, grid_header_style, manual_row_style, legs_panel_style,
             panel_style, main_grid_style, grid_class, button_style, icon,
-            button_style, btn_style, analysis_btn_style)
+            button_style, btn_style, analysis_btn_style, live_price_style)
 
 
 if __name__ == "__main__":
