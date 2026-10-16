@@ -72,71 +72,95 @@ Built with **Dash** + **Plotly** + **AG Grid** + **PostgreSQL**.
 ## Quick Start (Local)
 
 ### 1. Clone
-```bash
+
 git clone https://github.com/cotsos2019/options-v2.git
 cd options-v2
-2. Virtual environment
-bash
+
+### 2. Virtual environment
+
 python -m venv .venv
-.venv\Scripts\Activate.ps1    # Windows
-# source .venv/bin/activate    # Linux/Mac
-3. Install
-bash
+.venv\Scripts\Activate.ps1
+source .venv/bin/activate
+
+### 3. Install
+
 pip install -r requirements.txt
-4. PostgreSQL setup
-bash
+
+### 4. PostgreSQL setup
+
 psql -U postgres
 CREATE DATABASE options_db;
 \q
-5. Create .env
-text
+
+### 5. Create .env
+
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=options_db
 DB_USER=postgres
 DB_PASSWORD=your_password
-6. Init DB
-bash
+
+### 6. Init DB
+
 python -c "import db; db.init_db()"
-7. Run
-bash
+
+### 7. Run
+
 python app.py
-Open http://127.0.0.1:8051
 
-Project Structure
-text
+Open **http://127.0.0.1:8051**
+
+---
+
+## Project Structure
+
 options-v2/
-├── app.py                       # Main application (single-file)
-├── db.py                        # PostgreSQL helpers
-├── .env                         # DB credentials (not in Git)
+├── app.py
+├── db.py
+├── .env
 ├── requirements.txt
-├── Procfile                     # For Render deployment
+├── Procfile
 ├── runtime.txt
-├── NOTES_FOR_DEVELOPER.md       # Technical notes for AI/dev
-├── START_HERE.md                # User guide
+├── NOTES_FOR_DEVELOPER.md
+├── START_HERE.md
 └── README.md
-Supported Symbols
-Crypto (live — Deribit)
 
-BTC ₿, ETH Ξ
+---
 
-Stocks (delayed — yfinance)
+## Supported Symbols
 
-AAPL, SPY, TSLA, NVDA, MSFT, QQQ
+**Crypto (live — Deribit)**
+- BTC ₿, ETH Ξ
 
-Contract Sizes
-Type	Size
-Crypto (BTC, ETH)	0.1 BTC/ETH per contract
-Stocks	100 shares per contract
-Deployment
-Deployed on Render (free tier). Auto-deploy on push to main.
+**Stocks (delayed — yfinance)**
+- AAPL, SPY, TSLA, NVDA, MSFT, QQQ
 
-For Postgres on production, use Neon or Render PostgreSQL.
+---
 
-Documentation
-START_HERE.md — User guide + troubleshooting
+## Contract Sizes
 
-NOTES_FOR_DEVELOPER.md — Architecture, gotchas, stage history
+| Type | Size |
+|---|---|
+| Crypto (BTC, ETH) | 0.1 BTC/ETH per contract |
+| Stocks | 100 shares per contract |
 
-License
+---
+
+## Deployment
+
+Deployed on **Render** (free tier). Auto-deploy on push to `main`.
+
+For Postgres on production, use **Neon** or **Render PostgreSQL**.
+
+---
+
+## Documentation
+
+- **[START_HERE.md](START_HERE.md)** — User guide + troubleshooting
+- **[NOTES_FOR_DEVELOPER.md](NOTES_FOR_DEVELOPER.md)** — Architecture, gotchas, stage history
+
+---
+
+## License
+
 Personal project — educational use.
