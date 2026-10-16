@@ -1,7 +1,7 @@
 """
-Options Dashboard v2 — Stage 22B (FINAL)
-+ 🔍 Analyze button in Strike cell
-+ Modal with call+put analytics table + 2 payoff charts + 4 add buttons
+Options Dashboard v2 — Stage 23
++ Fixed indentation bug in on_analyze_click
++ NEW: 📈 IV button → Volatility Smile chart modal
 + Full bilingual EL/EN
 """
 from dash import (
@@ -46,8 +46,11 @@ STRINGS = {
         "preset_st": "⚖️ Straddle",
         "about_btn": "❓ Τι είναι αυτό;",
         "analysis_btn": "📊 Ανάλυση Στρατηγικής",
+        "iv_btn": "📈 IV Chart",
+        "iv_chart_title": "📈 IV per Strike (Volatility Smile)",
         "guide_title": "📖 Οδηγός Στρατηγικών",
         "analysis_title": "📊 Ανάλυση Στρατηγικής",
+        "iv_title": "📈 Volatility Smile",
         "analysis_no_legs": "⚠️ Δεν έχεις legs. Κλίκαρε γραμμή + **+ LONG / + SHORT** ή διάλεξε preset.",
         "analysis_your_legs": "🎯 Τα legs σου",
         "analysis_chart": "📈 Διάγραμμα Κέρδους / Ζημιάς",
@@ -95,7 +98,6 @@ STRINGS = {
         "outcome_above": "Αν {sym} ≥ ${strike}",
         "outcome_below": "Αν {sym} < ${strike}",
         "outcome_between": "Αν ${lo} ≤ {sym} < ${hi}",
-        # NEW for 22B
         "strike_modal_title": "🔍 Ανάλυση Strike",
         "analytics_table": "📊 Στοιχεία Options",
         "call_chart_title": "📈 Payoff CALL (Long)",
@@ -112,6 +114,14 @@ STRINGS = {
         "capital_label": "Κεφάλαιο",
         "prob_itm_label": "Prob ITM",
         "break_even_label": "Break-even",
+        # IV chart
+        "iv_calls": "Calls IV",
+        "iv_puts": "Puts IV",
+        "iv_spot": "Spot",
+        "iv_strike": "Strike",
+        "iv_iv": "IV (%)",
+        "iv_no_data": "⚠️ Δεν υπάρχουν δεδομένα IV για αυτό το expiry.",
+        "iv_hint": "Το Volatility Smile δείχνει πώς αλλάζει το IV ανά strike. Χαμηλό κοντά στο spot, υψηλό στα άκρα (wings).",
     },
     "en": {
         "title": "📊 Options Dashboard",
@@ -134,8 +144,11 @@ STRINGS = {
         "preset_st": "⚖️ Straddle",
         "about_btn": "❓ What is this?",
         "analysis_btn": "📊 Strategy Analysis",
+        "iv_btn": "📈 IV Chart",
+        "iv_chart_title": "📈 IV per Strike (Volatility Smile)",
         "guide_title": "📖 Strategy Guide",
         "analysis_title": "📊 Strategy Analysis",
+        "iv_title": "📈 Volatility Smile",
         "analysis_no_legs": "⚠️ No legs. Click a row + **+ LONG / + SHORT** or pick a preset.",
         "analysis_your_legs": "🎯 Your legs",
         "analysis_chart": "📈 Profit / Loss Chart",
@@ -199,6 +212,13 @@ STRINGS = {
         "capital_label": "Capital",
         "prob_itm_label": "Prob ITM",
         "break_even_label": "Break-even",
+        "iv_calls": "Calls IV",
+        "iv_puts": "Puts IV",
+        "iv_spot": "Spot",
+        "iv_strike": "Strike",
+        "iv_iv": "IV (%)",
+        "iv_no_data": "⚠️ No IV data for this expiry.",
+        "iv_hint": "The Volatility Smile shows how IV changes per strike. Low near spot, high at the wings.",
     },
 }
 
@@ -816,11 +836,7 @@ def make_multi_leg_chart(spot, legs, symbol, theme="dark"):
     return go.Figure()
 
 
-# ============================================================
-# NEW: Single-option payoff chart (for modal)
-# ============================================================
 def make_single_option_chart(spot, strike, premium, opt_type, symbol, contract_size):
-    """Payoff chart for a LONG single option."""
     low = spot * 0.80
     high = spot * 1.20
     step = (high - low) / 100
@@ -844,7 +860,6 @@ def make_single_option_chart(spot, strike, premium, opt_type, symbol, contract_s
         else:
             loss_x.append(x); loss_y.append(y)
 
-    color = CALL_COLOR if opt_type == "call" else PUT_COLOR
     fig.add_trace(go.Scatter(x=profit_x, y=profit_y, mode="lines",
                              line=dict(color=PROFIT, width=3),
                              fill="tozeroy", fillcolor="rgba(46, 204, 113, 0.20)",
@@ -871,6 +886,69 @@ def make_single_option_chart(spot, strike, premium, opt_type, symbol, contract_s
         margin=dict(l=50, r=20, t=20, b=40),
         height=240,
         showlegend=False,
+    )
+    return fig
+
+
+# ============================================================
+# NEW: IV Chart (Volatility Smile)
+# ============================================================
+def make_iv_chart(rows, spot, symbol, lang):
+    """
+    rows: list of raw option dicts (from rows-store)
+    Builds IV smile — one line per strike (calls and puts share same IV).
+    """
+    s = STRINGS[lang]
+
+    # Group by strike — take IV from whichever option exists
+    by_strike = {}
+    for r in rows:
+        k = r.get("strike")
+        iv = r.get("iv")
+        if k is None or iv is None:
+            continue
+        if k not in by_strike:
+            by_strike[k] = iv
+        # If both call and put exist with same IV, no action needed
+
+    strikes = sorted(by_strike.keys())
+    ivs = [by_strike[k] for k in strikes]
+
+    fig = go.Figure()
+
+    if strikes:
+        fig.add_trace(go.Scatter(
+            x=strikes,
+            y=ivs,
+            mode="lines+markers",
+            name=s["iv_title"],
+            line=dict(color=ACCENT, width=3),
+            marker=dict(size=10, color=STRIKE, line=dict(color=ACCENT, width=2)),
+            hovertemplate="Strike: $%{x:,.0f}<br>IV: %{y:.2f}%<extra></extra>",
+        ))
+
+    fig.add_vline(x=spot, line_dash="dot", line_color=SPOT, line_width=2,
+                  annotation_text=f"{s['iv_spot']} ${spot:,.0f}",
+                  annotation_position="top",
+                  annotation_font=dict(color=SPOT, size=11))
+
+    fig.update_layout(
+        paper_bgcolor="#161b22", plot_bgcolor="#161b22",
+        font=dict(color="#e6edf3", size=11),
+        xaxis=dict(
+            title=dict(text=s["iv_strike"], font=dict(color="#e6edf3")),
+            tickfont=dict(color="#8b949e"), gridcolor="#30363d",
+            tickprefix="$", tickformat=",.0f",
+        ),
+        yaxis=dict(
+            title=dict(text=s["iv_iv"], font=dict(color="#e6edf3")),
+            tickfont=dict(color="#8b949e"), gridcolor="#30363d",
+            ticksuffix="%",
+        ),
+        margin=dict(l=60, r=30, t=40, b=50),
+        hovermode="x unified",
+        showlegend=False,
+        height=420,
     )
     return fig
 
@@ -975,22 +1053,6 @@ app.index_string = """
             .live-price .coin-icon {
                 font-size: 26px; font-weight: 900; color: #f39c12;
                 text-shadow: 0 0 8px rgba(243, 156, 18, 0.4);
-            }
-
-            .analyze-btn {
-                background: rgba(243, 156, 18, 0.15);
-                color: #f39c12;
-                border: 1px solid rgba(243, 156, 18, 0.4);
-                border-radius: 5px;
-                padding: 2px 6px;
-                cursor: pointer;
-                font-size: 11px;
-                margin-left: 4px;
-                transition: all 0.15s ease;
-            }
-            .analyze-btn:hover {
-                background: rgba(243, 156, 18, 0.3);
-                transform: scale(1.1);
             }
 
             .exec-card {
@@ -1147,19 +1209,31 @@ app.layout = html.Div([
         html.Button(id="preset-cs", n_clicks=0, className="ds-preset"),
         html.Button(id="preset-ic", n_clicks=0, className="ds-preset"),
         html.Button(id="preset-st", n_clicks=0, className="ds-preset"),
-            html.Button(
-        "🔍 Analyze",
-        id="analyze-strike-btn",
-        n_clicks=0,
-        className="ds-preset",
-        style={
-            "background": "rgba(243,156,18,0.15)",
-            "color": "#f39c12",
-            "border": "1px solid rgba(243,156,18,0.5)",
-            "fontWeight": "700",
-            "marginLeft": "12px",
-        },
-    ),
+        html.Button(
+            "🔍 Analyze",
+            id="analyze-strike-btn",
+            n_clicks=0,
+            className="ds-preset",
+            style={
+                "background": "rgba(243,156,18,0.15)",
+                "color": "#f39c12",
+                "border": "1px solid rgba(243,156,18,0.5)",
+                "fontWeight": "700",
+                "marginLeft": "12px",
+            },
+        ),
+        html.Button(
+            id="iv-btn",
+            n_clicks=0,
+            className="ds-preset",
+            style={
+                "background": "rgba(88,166,255,0.15)",
+                "color": "#58a6ff",
+                "border": "1px solid rgba(88,166,255,0.5)",
+                "fontWeight": "700",
+                "marginLeft": "8px",
+            },
+        ),
         html.Span(id="presets-hint", className="ds-hint"),
     ], id="preset-row", style={"display": "flex", "alignItems": "center",
                                 "padding": "0 24px 12px 24px", "flexWrap": "wrap"}),
@@ -1174,12 +1248,12 @@ app.layout = html.Div([
             ], id="grid-header", style={"padding": "12px 16px"}),
 
             html.Div([
-    html.Div([
-        html.Button(id="add-long-btn", n_clicks=0, className="ds-action"),
-        html.Button(id="add-short-btn", n_clicks=0, className="ds-action"),        
-        html.Span(id="manual-hint", className="ds-hint"),
-    ], style={"display": "flex", "alignItems": "center"}),
-], id="manual-row", style={"padding": "0 16px 12px 16px"}),
+                html.Div([
+                    html.Button(id="add-long-btn", n_clicks=0, className="ds-action"),
+                    html.Button(id="add-short-btn", n_clicks=0, className="ds-action"),
+                    html.Span(id="manual-hint", className="ds-hint"),
+                ], style={"display": "flex", "alignItems": "center"}),
+            ], id="manual-row", style={"padding": "0 16px 12px 16px"}),
 
             dag.AgGrid(
                 id="chain-grid",
@@ -1294,6 +1368,22 @@ app.layout = html.Div([
         ], id="strike-modal-content", style={}),
     ], id="strike-modal", style={"display": "none"}),
 
+    # IV modal
+    html.Div([
+        html.Div([
+            html.Div([
+                html.Span(id="iv-modal-title",
+                          style={"fontWeight": "700", "fontSize": "16px"}),
+                html.Button("✕", id="close-iv-btn", n_clicks=0,
+                            style={"padding": "4px 10px", "borderRadius": "5px",
+                                   "border": "1px solid #30363d", "background": "transparent",
+                                   "color": "#e6edf3", "fontSize": "14px", "cursor": "pointer"}),
+            ], style={"display": "flex", "justifyContent": "space-between",
+                      "alignItems": "center", "marginBottom": "12px"}),
+            html.Div(id="iv-modal-body"),
+        ], id="iv-modal-content", style={}),
+    ], id="iv-modal", style={"display": "none"}),
+
     dcc.Interval(id="tick", interval=30000, n_intervals=0),
     dcc.Interval(id="price-tick", interval=10000, n_intervals=0),
     dcc.Store(id="theme-store", data="dark"),
@@ -1307,6 +1397,7 @@ app.layout = html.Div([
     dcc.Store(id="analysis-open", data=False),
     dcc.Store(id="selected-strike-store", data=None),
     dcc.Store(id="strike-modal-open", data=False),
+    dcc.Store(id="iv-modal-open", data=False),
 ], id="root", style={
     "minHeight": "100vh",
     "fontFamily": "Inter, -apple-system, Segoe UI, sans-serif",
@@ -1367,6 +1458,14 @@ def toggle_analysis(n1, n2, current):
     return ctx.triggered_id == "analysis-btn"
 
 
+@callback(Output("iv-modal-open", "data"),
+          Input("iv-btn", "n_clicks"),
+          Input("close-iv-btn", "n_clicks"),
+          State("iv-modal-open", "data"), prevent_initial_call=True)
+def toggle_iv_modal(n1, n2, current):
+    return ctx.triggered_id == "iv-btn"
+
+
 # Strike modal open/close
 @callback(
     Output("strike-modal-open", "data"),
@@ -1381,7 +1480,8 @@ def toggle_strike_modal(strike, n):
         return True
     return False
 
-    # Analyze button — reads selected row and sets the strike
+
+# Analyze button — reads selected row and sets the strike
 @callback(
     Output("selected-strike-store", "data", allow_duplicate=True),
     Input("analyze-strike-btn", "n_clicks"),
@@ -1418,8 +1518,10 @@ def on_analyze_click(n, selected_rows):
     Output("preset-st", "children"),
     Output("about-btn", "children"),
     Output("analysis-btn", "children"),
+    Output("iv-btn", "children"),
     Output("about-title", "children"),
     Output("strike-modal-title", "children"),
+    Output("iv-modal-title", "children"),
     Input("lang-store", "data"),
 )
 def render_language(lang):
@@ -1429,8 +1531,8 @@ def render_language(lang):
         s["presets_hint"], s["chain"], s["legs"], s["long"], s["short"],
         s["manual_hint"], s["underlying"], s["clear"],
         s["preset_cc"], s["preset_cs"], s["preset_ic"], s["preset_st"],
-        s["about_btn"], s["analysis_btn"], s["guide_title"],
-        s["strike_modal_title"],
+        s["about_btn"], s["analysis_btn"], s["iv_btn"],
+        s["guide_title"], s["strike_modal_title"], s["iv_title"],
     )
 
 
@@ -1474,7 +1576,6 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
     else:
         spot = get_stock_spot(symbol) or 100
 
-    # Find call and put for this strike
     call_r = None
     put_r = None
     for r in (rows or []):
@@ -1487,7 +1588,6 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
     is_crypto = symbol in CRYPTO_SYMBOLS
     contract_size = CRYPTO_CONTRACT if is_crypto else STOCK_CONTRACT
 
-    # ===== Analytics table =====
     def row(label, cv, pv, color_c=None, color_p=None):
         return html.Tr([
             html.Td(label, style={"color": t["muted"], "fontWeight": "600"}),
@@ -1531,7 +1631,6 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
         ])
     ], className="analytics-table")
 
-    # ===== Charts =====
     call_chart = None
     if call_r:
         call_chart = dcc.Graph(
@@ -1563,7 +1662,6 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
         ], style={"flex": "1"}),
     ], style={"display": "flex", "gap": "16px", "marginTop": "20px"})
 
-    # ===== Add buttons =====
     def make_add_btn(label, strike_val, opt_type, side, className):
         return html.Button(
             label,
@@ -1579,13 +1677,80 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
         make_add_btn(s["add_put_short"], strike, "put", "short", "add-btn-short"),
     ], className="add-btn-grid")
 
-    # ===== Assemble =====
     body = [
         html.H3(s["analytics_table"], style={"fontSize": "15px", "marginTop": "0",
                                               "color": STRIKE}),
         analytics_table,
         charts_row,
         add_btns,
+    ]
+    return modal_style, content_style, title_style, body
+
+
+# ============================================================
+# IV MODAL RENDER
+# ============================================================
+@callback(
+    Output("iv-modal", "style"),
+    Output("iv-modal-content", "style"),
+    Output("iv-modal-title", "style"),
+    Output("iv-modal-body", "children"),
+    Input("iv-modal-open", "data"),
+    Input("theme-store", "data"),
+    Input("lang-store", "data"),
+    Input("rows-store", "data"),
+    State("symbol-store", "data"),
+)
+def render_iv_modal(is_open, theme, lang, rows, symbol):
+    t = THEMES[theme]
+    s = STRINGS[lang]
+
+    if not is_open:
+        return {"display": "none"}, {}, {}, ""
+
+    modal_style = {"display": "flex", "position": "fixed", "top": "0", "left": "0",
+                   "width": "100%", "height": "100%",
+                   "background": "rgba(0,0,0,0.8)",
+                   "justifyContent": "center", "alignItems": "center",
+                   "zIndex": "9999", "padding": "20px"}
+    content_style = {"background": t["panel"], "border": f"1px solid {t['border']}",
+                     "borderRadius": "12px", "padding": "24px",
+                     "maxWidth": "1100px", "width": "95%", "maxHeight": "92vh",
+                     "overflowY": "auto", "color": t["text"]}
+    title_style = {"fontWeight": "700", "fontSize": "18px", "color": SPOT}
+
+    symbol = symbol or "BTC"
+    if symbol in CRYPTO_SYMBOLS:
+        spot = get_crypto_spot(symbol) or 100
+    else:
+        spot = get_stock_spot(symbol) or 100
+
+    if not rows:
+        body = [html.Div(s["iv_no_data"],
+                         style={"padding": "20px", "color": t["muted"],
+                                "fontSize": "14px"})]
+        return modal_style, content_style, title_style, body
+
+    chart = dcc.Graph(
+        figure=make_iv_chart(rows, spot, symbol, lang),
+        config={"displayModeBar": False},
+        style={"height": "420px"},
+    )
+
+    hint = html.Div(s["iv_hint"],
+                    style={"marginTop": "16px",
+                           "padding": "10px 14px",
+                           "background": "rgba(88,166,255,0.08)",
+                           "borderLeft": "3px solid #58a6ff",
+                           "borderRadius": "6px",
+                           "color": t["muted"],
+                           "fontSize": "12px"})
+
+    body = [
+        html.H3(f"{s['iv_title']} — {symbol}",
+                style={"fontSize": "15px", "marginTop": "0", "color": SPOT}),
+        chart,
+        hint,
     ]
     return modal_style, content_style, title_style, body
 
@@ -1608,7 +1773,6 @@ def add_from_modal(n, legs, rows):
     side = ctx.triggered_id["side"]
     side_val = 1 if side == "long" else -1
 
-    # Find the matching option in rows
     for r in (rows or []):
         if abs(r.get("strike", 0) - strike_val) < 0.01 and r["type"] == opt:
             leg = {"side": side_val, "type": opt, "strike": strike_val,
@@ -1638,9 +1802,9 @@ def render_about_modal(is_open, theme, lang):
                      "overflowY": "auto", "color": t["text"]}
     title_style = {"fontWeight": "700", "fontSize": "16px", "color": t["text"]}
     if lang == "el":
-        body = """### 🛡️ Covered Call\nΑγοράζεις 0.1 BTC, πουλάς OTM call.\n\n### ↗️ Call Spread\nLong call + short πιο ψηλό call.\n\n### 🦅 Iron Condor\n4 legs.\n\n### ⚖️ Straddle\nLong call + long put.\n\n### 🔍 Analyze Button\nΠάτα το 🔍 δίπλα σε κάθε strike για λεπτομέρειες."""
+        body = """### 🛡️ Covered Call\nΑγοράζεις 0.1 BTC, πουλάς OTM call.\n\n### ↗️ Call Spread\nLong call + short πιο ψηλό call.\n\n### 🦅 Iron Condor\n4 legs.\n\n### ⚖️ Straddle\nLong call + long put.\n\n### 🔍 Analyze Button\nΠάτα το 🔍 δίπλα σε κάθε strike για λεπτομέρειες.\n\n### 📈 IV Button\nΠάτα το 📈 για να δεις το Volatility Smile."""
     else:
-        body = """### 🛡️ Covered Call\nBuy 0.1 BTC, sell OTM call.\n\n### ↗️ Call Spread\nLong call + short higher call.\n\n### 🦅 Iron Condor\n4 legs.\n\n### ⚖️ Straddle\nLong call + long put.\n\n### 🔍 Analyze Button\nPress 🔍 next to any strike for details."""
+        body = """### 🛡️ Covered Call\nBuy 0.1 BTC, sell OTM call.\n\n### ↗️ Call Spread\nLong call + short higher call.\n\n### 🦅 Iron Condor\n4 legs.\n\n### ⚖️ Straddle\nLong call + long put.\n\n### 🔍 Analyze Button\nPress 🔍 next to any strike for details.\n\n### 📈 IV Button\nPress 📈 to see the Volatility Smile."""
     return modal_style, content_style, title_style, body
 
 
