@@ -492,8 +492,7 @@ def get_crypto_expiries(currency="BTC"):
     cache_set(key, good, ttl=600)
     return good
 
-
-def get_crypto_chain(currency, expiry_label, limit=30):
+def get_crypto_chain(currency, expiry_label, limit=200):
     key = f"chain:{currency}:{expiry_label}:{limit}"
     cached = cache_get(key)
     if cached is not None:
@@ -638,7 +637,7 @@ def _clean(v):
         return 0.0
 
 
-def get_stock_chain(symbol, expiry, max_strikes=30):
+def get_stock_chain(symbol, expiry, max_strikes=200):
     key = f"stk_chain:{symbol}:{expiry}:{max_strikes}"
     cached = cache_get(key)
     if cached is not None:
@@ -835,6 +834,7 @@ def build_chain_view(rows, spot=None):
             "p_instrument": p.get("instrument") if p else None,
             "volume": round(c_vol + p_vol, 1),
             "oi": round(c_oi + p_oi, 1),
+            "chart_btn": "📊",
         })
 
     if spot:
@@ -1711,6 +1711,9 @@ app.layout = html.Div([
                 html.Div([
                     html.Button(id="add-long-btn", n_clicks=0, className="ds-action"),
                     html.Button(id="add-short-btn", n_clicks=0, className="ds-action"),
+                    html.Button("📊 Chart", id="show-chart-btn", n_clicks=0, className="ds-action",
+                          style={"background": "rgba(243,156,18,0.15)", "color": "#f39c12",
+                                       "border": "1px solid rgba(243,156,18,0.5)"}),
                     html.Span(id="manual-hint", className="ds-hint"),
                 ], style={"display": "flex", "alignItems": "center"}),
             ], id="manual-row", style={"padding": "0 16px 12px 16px"}),
@@ -1722,28 +1725,26 @@ app.layout = html.Div([
                     {"field": "c_ask", "headerName": "C Ask", "minWidth": 70, "flex": 1},
                     {"field": "c_iv", "headerName": "C IV", "minWidth": 60, "flex": 1},
                     {"field": "c_delta", "headerName": "C Δ", "minWidth": 60, "flex": 1},
+                    {"field": "chart_btn", "headerName": "📊", "minWidth": 60, "maxWidth": 60,
+                     "cellStyle": {"cursor": "pointer", "textAlign": "center", "fontSize": "18px"}},
                     {"field": "strike", "headerName": "STRIKE", "minWidth": 100, "flex": 1.2},
+                    {
+                        "field": "volume", "headerName": "VOL", "minWidth": 70, "flex": 1,
+                        "headerTooltip": "Volume — πόσα contracts αγοράστηκαν σήμερα (Call + Put)",
+                    },
+                    {
+                        "field": "oi", "headerName": "OI", "minWidth": 70, "flex": 1,
+                        "headerTooltip": "Open Interest — πόσα contracts είναι ανοιχτά (Call + Put)",
+                    },
                     {"field": "p_delta", "headerName": "P Δ", "minWidth": 60, "flex": 1},
                     {"field": "p_iv", "headerName": "P IV", "minWidth": 60, "flex": 1},
                     {"field": "p_ask", "headerName": "P Ask", "minWidth": 70, "flex": 1},
                     {"field": "p_bid", "headerName": "P Bid", "minWidth": 70, "flex": 1},
-                    {
-                        "field": "volume", "headerName": "VOL", "minWidth": 110, "flex": 1.2,
-                        "cellRenderer": _make_vol_renderer(),
-                        "cellRendererParams": {"max": 5000},
-                        "headerTooltip": "Volume — πόσα contracts αγοράστηκαν σήμερα (Call + Put)",
-                    },
-                    {
-                        "field": "oi", "headerName": "OI", "minWidth": 110, "flex": 1.2,
-                        "cellRenderer": _make_oi_renderer(),
-                        "cellRendererParams": {"max": 5000},
-                        "headerTooltip": "Open Interest — πόσα contracts είναι ανοιχτά (Call + Put)",
-                    },
-                ],
+                                    ],
                 rowData=[],
-                style={"height": "calc(100vh - 460px)", "minHeight": "320px"},
+                    style={"height": "calc(100vh - 260px)", "minHeight": "500px"},
                 className="ag-theme-alpine-dark",
-                dangerously_allow_code=True,
+                
                 dashGridOptions={
                     "rowSelection": {
                         "mode": "singleRow",
@@ -1770,13 +1771,10 @@ app.layout = html.Div([
                                         "maxHeight": "180px", "overflowY": "auto"}),
         ], id="grid-panel", style={"borderRadius": "8px", "overflow": "hidden"}),
 
-        html.Div([
-            dcc.Graph(id="chart", style={"height": "calc(100vh - 260px)", "minHeight": "400px"},
-                      config={"displayModeBar": False}),
-        ], id="chart-panel", style={"borderRadius": "8px", "overflow": "hidden"}),
+        
     ], id="main-grid", style={
         "display": "grid",
-        "gridTemplateColumns": "1.9fr 1.1fr",
+        "gridTemplateColumns": "1fr",
         "gap": "16px",
         "padding": "16px 24px",
     }),
@@ -1825,6 +1823,20 @@ app.layout = html.Div([
             html.Div(id="strike-modal-body"),
         ], id="strike-modal-content", style={}),
     ], id="strike-modal", style={"display": "none"}),
+        html.Div([
+        html.Div([
+            html.Div([
+                html.Span(id="chart-modal-title",
+                          style={"fontWeight": "700", "fontSize": "16px"}),
+                html.Button("✕", id="close-chart-btn", n_clicks=0,
+                            style={"padding": "4px 10px", "borderRadius": "5px",
+                                   "border": "1px solid #30363d", "background": "transparent",
+                                   "color": "#e6edf3", "fontSize": "14px", "cursor": "pointer"}),
+            ], style={"display": "flex", "justifyContent": "space-between",
+                      "alignItems": "center", "marginBottom": "12px"}),
+            html.Div(id="chart-modal-body"),
+        ], id="chart-modal-content", style={}),
+    ], id="chart-modal", style={"display": "none"}),
 
     html.Div([
         html.Div([
@@ -1886,6 +1898,8 @@ app.layout = html.Div([
     dcc.Store(id="strike-modal-open", data=False),
     dcc.Store(id="iv-modal-open", data=False),
     dcc.Store(id="saved-strategies", data=[]),
+    dcc.Store(id="chart-modal-open", data=False),
+    dcc.Store(id="chart-modal-strike", data=None),
     dcc.Store(id="save-modal-open", data=False),
     dcc.Store(id="load-modal-open", data=False),
 ], id="root", style={
@@ -1989,6 +2003,89 @@ def toggle_strike_modal(strike, n):
         return True
     return False
 
+@callback(
+    Output("chart-modal-open", "data"),
+    Output("chart-modal-strike", "data"),
+    Input("show-chart-btn", "n_clicks"),
+    Input("close-chart-btn", "n_clicks"),
+    State("chain-grid", "selectedRows"),
+    prevent_initial_call=True,
+)
+def toggle_chart_modal(n_show, n_close, selected):
+    tid = ctx.triggered_id
+    if tid == "close-chart-btn":
+        return False, None
+    if tid == "show-chart-btn" and selected:
+        strike_val = selected[0].get("strike")
+        if strike_val is not None:
+            return True, strike_val
+    return no_update, no_update
+    
+
+@callback(
+    Output("chart-modal", "style"),
+    Output("chart-modal-content", "style"),
+    Output("chart-modal-title", "style"),
+    Output("chart-modal-body", "children"),
+    Input("chart-modal-open", "data"),
+    Input("chart-modal-strike", "data"),
+    Input("theme-store", "data"),
+    Input("lang-store", "data"),
+    State("symbol-store", "data"),
+    State("rows-store", "data"),
+)
+def render_chart_modal(is_open, strike, theme, lang, symbol, rows):
+    t = THEMES[theme]
+    s = STRINGS[lang]
+
+    if not is_open or strike is None:
+        return {"display": "none"}, {}, {}, ""
+
+    modal_style = {"display": "flex", "position": "fixed", "top": "0", "left": "0",
+                   "width": "100%", "height": "100%",
+                   "background": "rgba(0,0,0,0.85)",
+                   "justifyContent": "center", "alignItems": "center",
+                   "zIndex": "9999", "padding": "20px"}
+    content_style = {"background": t["panel"], "border": f"1px solid {t['border']}",
+                     "borderRadius": "12px", "padding": "24px",
+                     "maxWidth": "900px", "width": "95%", "maxHeight": "90vh",
+                     "overflowY": "auto", "color": t["text"]}
+    title_style = {"fontWeight": "700", "fontSize": "18px", "color": STRIKE}
+
+    symbol = symbol or "BTC"
+    if symbol in CRYPTO_SYMBOLS:
+        spot = get_crypto_spot(symbol) or 100
+    else:
+        spot = get_stock_spot(symbol) or 100
+
+    target = None
+    for r in (rows or []):
+        if abs(r.get("strike", 0) - strike) < 0.01 and r["type"] == "call":
+            target = r
+            break
+    if target is None:
+        for r in (rows or []):
+            if abs(r.get("strike", 0) - strike) < 0.01:
+                target = r
+                break
+
+    if target is None:
+        return modal_style, content_style, title_style, [html.Div("No data")]
+
+    contract_size = CRYPTO_CONTRACT if symbol in CRYPTO_SYMBOLS else STOCK_CONTRACT
+    fig = make_single_option_chart(
+        spot, strike,
+        target.get("premium") or target.get("bid") or 0,
+        target["type"], symbol, contract_size,
+    )
+
+    body = [
+        html.H3(f"{symbol} — Strike ${strike:,.0f}",
+                style={"fontSize": "15px", "marginTop": "0", "color": STRIKE}),
+        dcc.Graph(figure=fig, config={"displayModeBar": False},
+                  style={"height": "500px"}),
+    ]
+    return modal_style, content_style, title_style, body
 
 @callback(
     Output("selected-strike-store", "data", allow_duplicate=True),
@@ -3092,11 +3189,11 @@ def load_expiries_for_symbol(symbol):
     try:
         if symbol in CRYPTO_SYMBOLS:
             expiries = get_crypto_expiries(currency=symbol)
-            data = [[ts, label] for ts, label in expiries[:12]]
+            data = [[ts, label] for ts, label in expiries[:24]]
             default = expiries[0][1] if expiries else None
         else:
             expiries = get_stock_expiries(symbol)
-            data = [[label, label] for ts, label in expiries[:12]]
+            data = [[label, label] for ts, label in expiries[:24]]
             default = expiries[0][1] if expiries else None
     except Exception:
         return [], None
@@ -3142,9 +3239,9 @@ def fetch_rows(_, symbol, expiry, expiry_list):
         return []
     try:
         if symbol in CRYPTO_SYMBOLS:
-            return get_crypto_chain(symbol, expiry, 30)
+            return get_crypto_chain(symbol, expiry, 200)
         else:
-            return get_stock_chain(symbol, expiry, 30)
+            return get_stock_chain(symbol, expiry, 200)
     except Exception as e:
         print(f"[fetch] error: {e}")
         return []
@@ -3410,7 +3507,7 @@ def update_chart(legs, selected_rows, rows, symbol, theme):
           Output("symbol-row", "style"), Output("expiry-row", "style"),
           Output("preset-row", "style"), Output("grid-panel", "style"),
           Output("grid-header", "style"), Output("manual-row", "style"),
-          Output("legs-panel", "style"), Output("chart-panel", "style"),
+          Output("legs-panel", "style"),
           Output("main-grid", "style"), Output("chain-grid", "className"),
           Output("theme-toggle", "style"), Output("theme-toggle", "children"),
           Output("lang-toggle", "style"), Output("about-btn", "style"),
@@ -3444,7 +3541,7 @@ def apply_theme(theme):
     legs_panel_style = {"padding": "12px 16px", "minHeight": "100px",
                         "maxHeight": "180px", "overflowY": "auto",
                         "borderTop": f"1px solid {t['border']}"}
-    main_grid_style = {"display": "grid", "gridTemplateColumns": "1.9fr 1.1fr",
+    main_grid_style = {"display": "grid", "gridTemplateColumns": "1fr",
                        "gap": "16px", "padding": "20px 28px"}
     button_style = {"fontSize": "15px", "padding": "8px 12px",
                     "borderRadius": "8px", "cursor": "pointer",
@@ -3470,7 +3567,7 @@ def apply_theme(theme):
     icon = "☀️" if theme == "dark" else "🌙"
     return (root_style, header_style, row_style, expiry_style, preset_style,
             panel_style, grid_header_style, manual_row_style, legs_panel_style,
-            panel_style, main_grid_style, grid_class, button_style, icon,
+            main_grid_style, grid_class, button_style, icon,
             button_style, btn_style, analysis_btn_style, live_price_style)
 
 
