@@ -1,8 +1,9 @@
 """
-Options Dashboard v2 — Stage 23
-+ Fixed indentation bug in on_analyze_click
-+ NEW: 📈 IV button → Volatility Smile chart modal
-+ Full bilingual EL/EN
+Options Dashboard v2 — Stage 27
++ Professional UI
++ Educational Analyze Modal
++ Save / Load Strategies
++ Fixed AG Grid (no more XSS warnings)
 """
 from dash import (
     Dash, html, dcc, callback, ctx,
@@ -17,6 +18,8 @@ import time
 import math
 from datetime import datetime, timezone
 from curl_cffi import requests as curl_requests
+import db as strategies_db
+
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -26,8 +29,8 @@ DERIBIT = "https://www.deribit.com/api/v2"
 
 STRINGS = {
     "el": {
-        "title": "📊 Options Dashboard",
-        "subtitle": "Crypto + Stocks options dashboard",
+        "title": "Options Dashboard",
+        "subtitle": "Crypto & stocks options analytics",
         "symbol": "💰 Σύμβολο:",
         "expiry": "📅 Λήξη:",
         "presets": "⚡ Στρατηγικές (auto από spot):",
@@ -114,7 +117,6 @@ STRINGS = {
         "capital_label": "Κεφάλαιο",
         "prob_itm_label": "Prob ITM",
         "break_even_label": "Break-even",
-        # IV chart
         "iv_calls": "Calls IV",
         "iv_puts": "Puts IV",
         "iv_spot": "Spot",
@@ -122,10 +124,78 @@ STRINGS = {
         "iv_iv": "IV (%)",
         "iv_no_data": "⚠️ Δεν υπάρχουν δεδομένα IV για αυτό το expiry.",
         "iv_hint": "Το Volatility Smile δείχνει πώς αλλάζει το IV ανά strike. Χαμηλό κοντά στο spot, υψηλό στα άκρα (wings).",
+        # Stage 24: Educational Strike Modal
+        "sm_what_is": "📖 Τι είναι αυτό το option;",
+        "sm_what_is_call": "Ένα CALL option με strike **${strike}** σου δίνει το **δικαίωμα** (όχι υποχρέωση) να **ΑΓΟΡΑΣΕΙΣ** {sym} στα **${strike}** μέχρι τη λήξη. Κερδίζεις όταν το {sym} ανέβει πάνω από **${breakeven}**.",
+        "sm_what_is_put": "Ένα PUT option με strike **${strike}** σου δίνει το **δικαίωμα** (όχι υποχρέωση) να **ΠΟΥΛΗΣΕΙΣ** {sym} στα **${strike}** μέχρι τη λήξη. Κερδίζεις όταν το {sym} πέσει κάτω από **${breakeven}**.",
+        "sm_current_status": "📍 Τρέχουσα κατάσταση",
+        "sm_spot_now": "Spot τώρα",
+        "sm_moneyness": "Κατάσταση",
+        "sm_moneyness_itm": "🟢 ITM (In The Money) — έχει εσωτερική αξία",
+        "sm_moneyness_atm": "🟡 ATM (At The Money) — στο strike",
+        "sm_moneyness_otm": "🔴 OTM (Out of The Money) — χωρίς εσωτερική αξία",
+        "sm_moneyness_itm_short": "ITM",
+        "sm_moneyness_atm_short": "ATM",
+        "sm_moneyness_otm_short": "OTM",
+        "sm_intrinsic": "Εσωτερική αξία",
+        "sm_time_value": "Χρονική αξία",
+        "sm_breakeven_short": "Break-even",
+        "sm_breakeven_explain": "Η τιμή όπου δεν κερδίζεις ούτε χάνεις",
+        "sm_table_title": "📊 Πίνακας δεδομένων",
+        "sm_tooltip_strike": "Η τιμή στην οποία μπορείς να αγοράσεις/πουλήσεις το υποκείμενο",
+        "sm_tooltip_bid": "Η τιμή που κάποιος είναι διατεθειμένος να ΑΓΟΡΑΣΕΙ το option",
+        "sm_tooltip_ask": "Η τιμή που κάποιος είναι διατεθειμένος να ΠΟΥΛΗΣΕΙ το option",
+        "sm_tooltip_premium": "Μέση τιμή (Bid + Ask) / 2 — αυτό πληρώνεις συνήθως",
+        "sm_tooltip_iv": "Implied Volatility — πόσο volatile αναμένει η αγορά ότι θα είναι το {sym}",
+        "sm_tooltip_delta": "Πόσο αλλάζει η τιμή του option αν το {sym} κινηθεί $1",
+        "sm_tooltip_prob": "Πιθανότητα (Black-Scholes) το option να λήξει ITM",
+        "sm_tooltip_capital": "Πόσα χρήματα χρειάζεσαι για 1 contract ({size})",
+        "sm_interp_title": "💡 Τι σημαίνει για μένα;",
+        "sm_interp_cheap": "Το premium είναι **χαμηλό** (${prem}). Φθηνό αλλά με μικρή πιθανότητα κέρδους ({prob}%).",
+        "sm_interp_expensive": "Το premium είναι **υψηλό** (${prem}). Ακριβό αλλά με μεγάλη πιθανότητα κέρδους ({prob}%).",
+        "sm_interp_mid": "Το premium είναι **μέτριο** (${prem}) με πιθανότητα κέρδους {prob}%.",
+        "sm_interp_bullish": "Αν πιστεύεις ότι το {sym} θα **ΑΝΕΒΕΙ** → σκέψου **ΑΓΟΡΑ CALL**.",
+        "sm_interp_bearish": "Αν πιστεύεις ότι το {sym} θα **ΠΕΣΕΙ** → σκέψου **ΑΓΟΡΑ PUT**.",
+        "sm_interp_neutral": "Αν πιστεύεις ότι θα μείνει **σταθερό** → σκέψου **ΠΟΥΛΗΣΗ** option (short).",
+        "sm_example_title": "🎯 Παράδειγμα (ΑΓΟΡΑ CALL)",
+        "sm_example_up": "Αν το {sym} πάει **${price}** στη λήξη:",
+        "sm_example_down": "Αν το {sym} μείνει **${price}** στη λήξη:",
+        "sm_example_payoff": "Payoff",
+        "sm_example_cost": "Κόστος",
+        "sm_example_result": "Αποτέλεσμα",
+        "sm_example_win": "ΚΕΡΔΟΣ",
+        "sm_example_lose": "ΖΗΜΙΑ",
+        "sm_greeks_title": "📐 Greeks — τι σημαίνουν",
+        "sm_btn_explain_call_long": "Κερδίζεις αν το {sym} ανέβει πάνω από ${be}",
+        "sm_btn_explain_call_short": "Κερδίζεις αν το {sym} μείνει κάτω από ${be}",
+        "sm_btn_explain_put_long": "Κερδίζεις αν το {sym} πέσει κάτω από ${be}",
+        "sm_btn_explain_put_short": "Κερδίζεις αν το {sym} μείνει πάνω από ${be}",
+        "sm_contract_note": "1 contract = {size}",
+        "sm_contract_crypto": "0.1 {sym}",
+        "sm_contract_stock": "100 μετοχές",
+        # Stage 26: Save/Load Strategies
+        "sl_save_btn": "💾 Αποθήκευση",
+        "sl_load_btn": "📂 Στρατηγικές",
+        "sl_save_title": "💾 Αποθήκευση Στρατηγικής",
+        "sl_save_name": "Όνομα στρατηγικής:",
+        "sl_save_placeholder": "π.χ. Covered Call BTC",
+        "sl_save_confirm": "✅ Αποθήκευση",
+        "sl_save_cancel": "Ακύρωση",
+        "sl_save_empty": "⚠️ Δεν έχεις legs για αποθήκευση.",
+        "sl_save_no_name": "⚠️ Γράψε ένα όνομα.",
+        "sl_saved": "✅ Αποθηκεύτηκε!",
+        "sl_load_title": "📂 Αποθηκευμένες Στρατηγικές",
+        "sl_load_empty": "Δεν έχεις αποθηκευμένες στρατηγικές ακόμα.",
+        "sl_load_hint": "Πάτα μία για να τη φορτώσεις.",
+        "sl_load_btn_action": "Φόρτωση",
+        "sl_delete_btn_action": "Διαγραφή",
+        "sl_legs_count": "legs",
+        "sl_confirm_delete": "Σίγουρα;",
+        "sl_saved_at": "Αποθηκεύτηκε",
     },
     "en": {
-        "title": "📊 Options Dashboard",
-        "subtitle": "Crypto + Stocks options dashboard",
+        "title": "Options Dashboard",
+        "subtitle": "Crypto & stocks options analytics",
         "symbol": "💰 Symbol:",
         "expiry": "📅 Expiry:",
         "presets": "⚡ Strategies (auto from spot):",
@@ -219,6 +289,74 @@ STRINGS = {
         "iv_iv": "IV (%)",
         "iv_no_data": "⚠️ No IV data for this expiry.",
         "iv_hint": "The Volatility Smile shows how IV changes per strike. Low near spot, high at the wings.",
+        # Stage 24: Educational Strike Modal
+        "sm_what_is": "📖 What is this option?",
+        "sm_what_is_call": "A CALL option with strike **${strike}** gives you the **right** (not obligation) to **BUY** {sym} at **${strike}** until expiry. You profit when {sym} rises above **${breakeven}**.",
+        "sm_what_is_put": "A PUT option with strike **${strike}** gives you the **right** (not obligation) to **SELL** {sym} at **${strike}** until expiry. You profit when {sym} falls below **${breakeven}**.",
+        "sm_current_status": "📍 Current status",
+        "sm_spot_now": "Spot now",
+        "sm_moneyness": "Status",
+        "sm_moneyness_itm": "🟢 ITM (In The Money) — has intrinsic value",
+        "sm_moneyness_atm": "🟡 ATM (At The Money) — at strike",
+        "sm_moneyness_otm": "🔴 OTM (Out of The Money) — no intrinsic value",
+        "sm_moneyness_itm_short": "ITM",
+        "sm_moneyness_atm_short": "ATM",
+        "sm_moneyness_otm_short": "OTM",
+        "sm_intrinsic": "Intrinsic value",
+        "sm_time_value": "Time value",
+        "sm_breakeven_short": "Break-even",
+        "sm_breakeven_explain": "The price where you neither win nor lose",
+        "sm_table_title": "📊 Data table",
+        "sm_tooltip_strike": "The price at which you can buy/sell the underlying",
+        "sm_tooltip_bid": "The price someone is willing to BUY the option",
+        "sm_tooltip_ask": "The price someone is willing to SELL the option",
+        "sm_tooltip_premium": "Mid price (Bid + Ask) / 2 — what you usually pay",
+        "sm_tooltip_iv": "Implied Volatility — how volatile the market expects {sym} to be",
+        "sm_tooltip_delta": "How much the option price changes if {sym} moves $1",
+        "sm_tooltip_prob": "Probability (Black-Scholes) the option expires ITM",
+        "sm_tooltip_capital": "How much money you need for 1 contract ({size})",
+        "sm_interp_title": "💡 What does this mean for me?",
+        "sm_interp_cheap": "Premium is **low** (${prem}). Cheap but with small chance of profit ({prob}%).",
+        "sm_interp_expensive": "Premium is **high** (${prem}). Expensive but with high chance of profit ({prob}%).",
+        "sm_interp_mid": "Premium is **moderate** (${prem}) with {prob}% chance of profit.",
+        "sm_interp_bullish": "If you think {sym} will **RISE** → consider **BUY CALL**.",
+        "sm_interp_bearish": "If you think {sym} will **FALL** → consider **BUY PUT**.",
+        "sm_interp_neutral": "If you think it will stay **flat** → consider **SELLING** options (short).",
+        "sm_example_title": "🎯 Example (BUY CALL)",
+        "sm_example_up": "If {sym} goes to **${price}** at expiry:",
+        "sm_example_down": "If {sym} stays at **${price}** at expiry:",
+        "sm_example_payoff": "Payoff",
+        "sm_example_cost": "Cost",
+        "sm_example_result": "Result",
+        "sm_example_win": "PROFIT",
+        "sm_example_lose": "LOSS",
+        "sm_greeks_title": "📐 Greeks — what they mean",
+        "sm_btn_explain_call_long": "You profit if {sym} rises above ${be}",
+        "sm_btn_explain_call_short": "You profit if {sym} stays below ${be}",
+        "sm_btn_explain_put_long": "You profit if {sym} falls below ${be}",
+        "sm_btn_explain_put_short": "You profit if {sym} stays above ${be}",
+        "sm_contract_note": "1 contract = {size}",
+        "sm_contract_crypto": "0.1 {sym}",
+        "sm_contract_stock": "100 shares",
+        # Stage 26: Save/Load Strategies
+        "sl_save_btn": "💾 Save",
+        "sl_load_btn": "📂 Strategies",
+        "sl_save_title": "💾 Save Strategy",
+        "sl_save_name": "Strategy name:",
+        "sl_save_placeholder": "e.g. BTC Covered Call",
+        "sl_save_confirm": "✅ Save",
+        "sl_save_cancel": "Cancel",
+        "sl_save_empty": "⚠️ No legs to save.",
+        "sl_save_no_name": "⚠️ Enter a name.",
+        "sl_saved": "✅ Saved!",
+        "sl_load_title": "📂 Saved Strategies",
+        "sl_load_empty": "No saved strategies yet.",
+        "sl_load_hint": "Click one to load it.",
+        "sl_load_btn_action": "Load",
+        "sl_delete_btn_action": "Delete",
+        "sl_legs_count": "legs",
+        "sl_confirm_delete": "Sure?",
+        "sl_saved_at": "Saved",
     },
 }
 
@@ -333,8 +471,6 @@ def http_get(url, params=None, timeout=15):
         return requests.get(url, params=params, timeout=timeout)
     except requests.exceptions.SSLError:
         return requests.get(url, params=params, timeout=timeout, verify=False)
-
-
 def get_crypto_expiries(currency="BTC"):
     key = f"expiries:{currency}"
     cached = cache_get(key)
@@ -570,7 +706,7 @@ def _stock_row(r, symbol, expiry, opt_type, spot, T, r_rate):
     }
 
 
-def build_chain_view(rows):
+def build_chain_view(rows, spot=None):
     by_strike = {}
     for r in rows:
         k = r["strike"]
@@ -587,6 +723,7 @@ def build_chain_view(rows):
         c = entry.get("call"); p = entry.get("put")
         chain_rows.append({
             "strike": k,
+            "distance": abs(k - spot) if spot else k,
             "c_bid": c.get("bid") if c else None,
             "c_ask": c.get("ask") if c else None,
             "c_iv": c.get("iv") if c else None,
@@ -598,6 +735,9 @@ def build_chain_view(rows):
             "p_delta": p.get("delta") if p else None,
             "p_instrument": p.get("instrument") if p else None,
         })
+
+    if spot:
+        chain_rows.sort(key=lambda r: r["distance"])
     return chain_rows
 
 
@@ -837,8 +977,8 @@ def make_multi_leg_chart(spot, legs, symbol, theme="dark"):
 
 
 def make_single_option_chart(spot, strike, premium, opt_type, symbol, contract_size):
-    low = spot * 0.80
-    high = spot * 1.20
+    low = strike * 0.80
+    high = strike * 1.20
     step = (high - low) / 100
     prices = [low + i * step for i in range(101)]
 
@@ -879,28 +1019,21 @@ def make_single_option_chart(spot, strike, premium, opt_type, symbol, contract_s
     fig.update_layout(
         paper_bgcolor="#161b22", plot_bgcolor="#161b22",
         font=dict(color="#e6edf3", size=10),
-        xaxis=dict(title=dict(text=f"{symbol} Price", font=dict(color="#e6edf3", size=10)),
-                   tickfont=dict(color="#8b949e", size=9), gridcolor="#30363d"),
+        xaxis=dict(title=dict(text=f"{symbol} Price at Expiry", font=dict(color="#e6edf3", size=10)),
+                   tickfont=dict(color="#8b949e", size=9), gridcolor="#30363d",
+                   tickprefix="$", tickformat=",.0f"),
         yaxis=dict(title=dict(text="P&L ($)", font=dict(color="#e6edf3", size=10)),
-                   tickfont=dict(color="#8b949e", size=9), gridcolor="#30363d"),
-        margin=dict(l=50, r=20, t=20, b=40),
-        height=240,
+                   tickfont=dict(color="#8b949e", size=9), gridcolor="#30363d",
+                   tickprefix="$", tickformat=",.0f"),
+        margin=dict(l=60, r=20, t=30, b=40),
+        height=320,
         showlegend=False,
     )
     return fig
 
 
-# ============================================================
-# NEW: IV Chart (Volatility Smile)
-# ============================================================
 def make_iv_chart(rows, spot, symbol, lang):
-    """
-    rows: list of raw option dicts (from rows-store)
-    Builds IV smile — one line per strike (calls and puts share same IV).
-    """
     s = STRINGS[lang]
-
-    # Group by strike — take IV from whichever option exists
     by_strike = {}
     for r in rows:
         k = r.get("strike")
@@ -909,7 +1042,6 @@ def make_iv_chart(rows, spot, symbol, lang):
             continue
         if k not in by_strike:
             by_strike[k] = iv
-        # If both call and put exist with same IV, no action needed
 
     strikes = sorted(by_strike.keys())
     ivs = [by_strike[k] for k in strikes]
@@ -953,6 +1085,59 @@ def make_iv_chart(rows, spot, symbol, lang):
     return fig
 
 
+# ============================================================
+# STAGE 24: Single Option Analysis Helper
+# ============================================================
+def _analyze_single_option(spot, strike, opt_type, premium, iv_pct, is_crypto):
+    contract_size = CRYPTO_CONTRACT if is_crypto else STOCK_CONTRACT
+    premium_usd = premium or 0
+
+    diff = spot - strike
+    threshold = spot * 0.005
+    if abs(diff) < threshold:
+        moneyness = "atm"
+    elif opt_type == "call":
+        moneyness = "itm" if spot > strike else "otm"
+    else:
+        moneyness = "itm" if spot < strike else "otm"
+
+    if opt_type == "call":
+        intrinsic = max(spot - strike, 0)
+        breakeven = strike + premium_usd
+    else:
+        intrinsic = max(strike - spot, 0)
+        breakeven = strike - premium_usd
+
+    time_value = max(premium_usd - intrinsic, 0)
+    total_cost = premium_usd * contract_size
+
+    if opt_type == "call":
+        up_price = strike * 1.05
+        down_price = spot * 0.98
+    else:
+        up_price = strike * 0.95
+        down_price = spot * 1.02
+
+    def _payoff_long(p):
+        if opt_type == "call":
+            return (max(p - strike, 0) - premium_usd) * contract_size
+        else:
+            return (max(strike - p, 0) - premium_usd) * contract_size
+
+    example_up = {"price": up_price, "pnl": _payoff_long(up_price)}
+    example_down = {"price": down_price, "pnl": _payoff_long(down_price)}
+
+    return {
+        "moneyness": moneyness,
+        "intrinsic": round(intrinsic, 2),
+        "time_value": round(time_value, 2),
+        "breakeven": round(breakeven, 2),
+        "total_cost": round(total_cost, 2),
+        "example_up": example_up,
+        "example_down": example_down,
+        "contract_size": contract_size,
+    }
+
 app = Dash(__name__)
 server = app.server
 
@@ -962,52 +1147,71 @@ app.index_string = """
 <html>
     <head>
         {%metas%}
-        <title>Options Dashboard v2</title>
+        <title>Options Dashboard</title>
         {%favicon%}
         {%css%}
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
         <style>
             * { box-sizing: border-box; }
-            body { margin: 0; }
+            body { margin: 0; -webkit-font-smoothing: antialiased; }
 
             .ds-btn, .ds-symbol, .ds-expiry, .ds-preset, .ds-action, .ds-filter, .ds-theme {
-                font-family: inherit;
+                font-family: 'Inter', -apple-system, sans-serif;
                 cursor: pointer;
-                transition: all 0.15s ease;
+                transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
                 display: inline-flex;
                 align-items: center;
-                gap: 5px;
+                gap: 6px;
                 white-space: nowrap;
+                letter-spacing: -0.01em;
             }
             .ds-btn:hover, .ds-symbol:hover, .ds-expiry:hover,
             .ds-preset:hover, .ds-action:hover, .ds-filter:hover {
                 transform: translateY(-1px);
-                filter: brightness(1.15);
+                filter: brightness(1.12);
             }
-            .ds-symbol { padding: 9px 16px; margin-right: 6px; margin-bottom: 6px;
-                border-radius: 8px; font-size: 13px; font-weight: 600; }
-            .ds-expiry { padding: 7px 12px; margin-right: 6px; margin-bottom: 6px;
-                border-radius: 7px; font-size: 11px; font-weight: 600; }
-            .ds-preset { padding: 9px 14px; margin-right: 8px; margin-bottom: 6px;
-                border-radius: 8px; font-size: 12px; font-weight: 600; }
-            .ds-action { padding: 6px 12px; margin-left: 6px;
-                border-radius: 7px; font-size: 11px; font-weight: 700; }
-            .ds-filter { padding: 6px 12px; margin-left: 6px;
-                border-radius: 7px; font-size: 11px; font-weight: 700; }
-            .ds-theme { font-size: 18px; padding: 8px 14px; border-radius: 10px; }
-            .ds-theme:hover { transform: rotate(15deg) scale(1.1);
-                box-shadow: 0 4px 14px rgba(243, 156, 18, 0.4); }
+            .ds-symbol {
+                padding: 9px 16px; margin-right: 6px; margin-bottom: 6px;
+                border-radius: 8px; font-size: 13px; font-weight: 600;
+            }
+            .ds-expiry {
+                padding: 7px 13px; margin-right: 6px; margin-bottom: 6px;
+                border-radius: 7px; font-size: 11px; font-weight: 600;
+                letter-spacing: 0.02em;
+            }
+            .ds-preset {
+                padding: 9px 15px; margin-right: 8px; margin-bottom: 6px;
+                border-radius: 8px; font-size: 12px; font-weight: 600;
+            }
+            .ds-action {
+                padding: 7px 13px; margin-left: 6px;
+                border-radius: 7px; font-size: 11px; font-weight: 700;
+            }
+            .ds-filter {
+                padding: 6px 13px; margin-left: 6px;
+                border-radius: 7px; font-size: 11px; font-weight: 700;
+            }
+            .ds-theme {
+                font-size: 15px; padding: 8px 12px; border-radius: 8px;
+                font-weight: 600;
+            }
 
             .ag-theme-alpine-dark {
-                --ag-background-color: #161b22;
-                --ag-header-background-color: #1c2128;
-                --ag-odd-row-background-color: #161b22;
-                --ag-even-row-background-color: #1a1f27;
-                --ag-row-hover-color: #21262d;
-                --ag-border-color: #30363d;
+                --ag-background-color: #0d1117;
+                --ag-header-background-color: #161b22;
+                --ag-odd-row-background-color: #0d1117;
+                --ag-even-row-background-color: #11161d;
+                --ag-row-hover-color: #1c2128;
+                --ag-border-color: #21262d;
                 --ag-foreground-color: #e6edf3;
-                --ag-header-foreground-color: #e6edf3;
-                --ag-selected-row-background-color: #1f6feb;
+                --ag-header-foreground-color: #8b949e;
+                --ag-selected-row-background-color: rgba(31, 111, 235, 0.15);
                 --ag-font-size: 12px;
+                --ag-font-family: 'JetBrains Mono', 'SF Mono', monospace;
+                --ag-header-height: 38px;
+                --ag-row-height: 34px;
             }
             .ag-theme-alpine {
                 --ag-background-color: #ffffff;
@@ -1015,119 +1219,180 @@ app.index_string = """
                 --ag-odd-row-background-color: #ffffff;
                 --ag-even-row-background-color: #fafbfc;
                 --ag-row-hover-color: #f3f4f6;
-                --ag-border-color: #d0d7de;
+                --ag-border-color: #e5e7eb;
                 --ag-foreground-color: #1f2328;
-                --ag-header-foreground-color: #1f2328;
-                --ag-selected-row-background-color: #dbeafe;
+                --ag-header-foreground-color: #57606a;
+                --ag-selected-row-background-color: rgba(31, 111, 235, 0.08);
                 --ag-font-size: 12px;
+                --ag-font-family: 'JetBrains Mono', 'SF Mono', monospace;
+                --ag-header-height: 38px;
+                --ag-row-height: 34px;
             }
 
+            .ag-theme-alpine-dark .ag-header-cell-text,
+            .ag-theme-alpine .ag-header-cell-text {
+                font-weight: 700 !important;
+                text-transform: uppercase;
+                font-size: 10px !important;
+                letter-spacing: 0.08em;
+                font-family: 'Inter', sans-serif !important;
+            }
             .ag-theme-alpine-dark .ag-header-cell[col-id^="c_"],
             .ag-theme-alpine .ag-header-cell[col-id^="c_"] {
-                background: rgba(46, 204, 113, 0.08) !important;
+                background: rgba(46, 204, 113, 0.06) !important;
             }
             .ag-theme-alpine-dark .ag-header-cell[col-id^="p_"],
             .ag-theme-alpine .ag-header-cell[col-id^="p_"] {
-                background: rgba(231, 76, 60, 0.08) !important;
+                background: rgba(231, 76, 60, 0.06) !important;
             }
             .ag-theme-alpine-dark .ag-header-cell[col-id="strike"],
             .ag-theme-alpine .ag-header-cell[col-id="strike"] {
-                background: rgba(243, 156, 18, 0.15) !important;
-                font-weight: 700 !important;
+                background: rgba(243, 156, 18, 0.12) !important;
+                font-weight: 800 !important;
                 color: #f39c12 !important;
+            }
+            .ag-theme-alpine-dark .ag-cell,
+            .ag-theme-alpine .ag-cell {
+                font-family: 'JetBrains Mono', 'SF Mono', monospace !important;
+                font-size: 12px !important;
+                letter-spacing: -0.01em;
+            }
+            .ag-theme-alpine-dark .ag-row-selected {
+                background: rgba(31, 111, 235, 0.15) !important;
+                border-left: 3px solid #1f6feb !important;
+            }
+            .ag-theme-alpine .ag-row-selected {
+                background: rgba(31, 111, 235, 0.08) !important;
+                border-left: 3px solid #1f6feb !important;
             }
 
             .ds-hint {
                 font-size: 11px; color: #8b949e; font-style: italic;
-                margin-left: 8px; padding: 2px 8px;
+                margin-left: 8px; padding: 3px 10px;
                 border-left: 2px solid #30363d;
+                font-family: 'Inter', sans-serif;
             }
 
             .live-price {
-                font-size: 22px; font-weight: 700; color: #2ecc71;
-                font-family: 'Courier New', monospace; letter-spacing: 1px;
-                padding: 6px 18px; background: rgba(46, 204, 113, 0.08);
-                border-radius: 10px; border: 1px solid rgba(46, 204, 113, 0.3);
-                display: inline-flex; align-items: center; gap: 8px;
+                font-size: 20px; font-weight: 700; color: #2ecc71;
+                font-family: 'JetBrains Mono', monospace;
+                letter-spacing: -0.02em;
+                padding: 7px 16px 7px 14px;
+                background: rgba(46, 204, 113, 0.08);
+                border-radius: 10px;
+                border: 1px solid rgba(46, 204, 113, 0.25);
+                display: inline-flex; align-items: center; gap: 10px;
+                position: relative;
             }
             .live-price .coin-icon {
-                font-size: 26px; font-weight: 900; color: #f39c12;
-                text-shadow: 0 0 8px rgba(243, 156, 18, 0.4);
+                font-size: 20px; font-weight: 900; color: #f39c12;
+                line-height: 1;
+            }
+            .live-price .live-dot {
+                display: inline-block;
+                width: 7px; height: 7px;
+                background: #2ecc71;
+                border-radius: 50%;
+                box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.7);
+                animation: pulse 1.8s infinite;
+            }
+            @keyframes pulse {
+                0%   { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.6); }
+                70%  { box-shadow: 0 0 0 8px rgba(46, 204, 113, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
             }
 
             .exec-card {
-                background: rgba(31, 111, 235, 0.08);
+                background: rgba(31, 111, 235, 0.06);
                 border-left: 3px solid #1f6feb;
-                border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;
+                border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;
             }
             .exec-action {
-                display: inline-block; font-weight: 700; font-size: 11px;
+                display: inline-block; font-weight: 700; font-size: 10px;
                 padding: 3px 8px; border-radius: 4px;
-                margin-right: 8px; letter-spacing: 0.5px;
+                margin-right: 8px; letter-spacing: 0.06em;
+                text-transform: uppercase;
             }
-            .exec-buy { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
-            .exec-sell { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
+            .exec-buy  { background: rgba(46, 204, 113, 0.18); color: #2ecc71; }
+            .exec-sell { background: rgba(231, 76, 60, 0.18); color: #e74c3c; }
 
             .warn-card {
-                background: rgba(243, 156, 18, 0.1);
+                background: rgba(243, 156, 18, 0.08);
                 border-left: 3px solid #f39c12;
-                border-radius: 8px; padding: 10px 14px;
+                border-radius: 8px; padding: 12px 16px;
                 margin-bottom: 8px; font-size: 13px;
             }
 
             .greek-card {
-                background: rgba(155, 89, 182, 0.08);
+                background: rgba(155, 89, 182, 0.06);
                 border-left: 3px solid #9b59b6;
                 border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;
             }
-            .greek-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+            .greek-grid {
+                display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+            }
             .greek-cell {
                 background: rgba(255,255,255,0.03); border-radius: 6px;
                 padding: 10px; text-align: center;
             }
-            .greek-label { font-size: 10px; color: #8b949e; text-transform: uppercase;
-                letter-spacing: 1px; margin-bottom: 4px; }
-            .greek-value { font-size: 16px; font-weight: 700; color: #9b59b6; }
-            .greek-desc { font-size: 10px; color: #8b949e; margin-top: 4px; font-style: italic; }
+            .greek-label {
+                font-size: 10px; color: #8b949e; text-transform: uppercase;
+                letter-spacing: 0.08em; margin-bottom: 4px; font-weight: 600;
+            }
+            .greek-value { font-size: 16px; font-weight: 700; color: #9b59b6;
+                font-family: 'JetBrains Mono', monospace; }
 
             .outcome-row {
                 display: flex; justify-content: space-between;
-                align-items: center; padding: 10px 14px;
-                border-bottom: 1px solid #30363d; font-size: 13px;
+                align-items: center; padding: 12px 16px;
+                border-bottom: 1px solid #21262d; font-size: 13px;
             }
             .outcome-row:last-child { border-bottom: none; }
             .outcome-label { flex: 2; }
-            .outcome-pnl { flex: 1; text-align: right; font-weight: 700; }
-            .outcome-prob { flex: 1; text-align: right; color: #8b949e; font-size: 12px; }
+            .outcome-pnl {
+                flex: 1; text-align: right; font-weight: 700;
+                font-family: 'JetBrains Mono', monospace;
+            }
+            .outcome-prob { flex: 1; text-align: right; color: #8b949e;
+                font-size: 12px; font-family: 'JetBrains Mono', monospace; }
 
             .analytics-table {
                 width: 100%;
                 border-collapse: collapse;
-                background: #1c2128;
-                border-radius: 8px;
+                background: #161b22;
+                border-radius: 10px;
                 overflow: hidden;
+                border: 1px solid #21262d;
             }
             .analytics-table th {
-                background: #161b22;
-                padding: 10px;
+                background: #0d1117;
+                padding: 11px 12px;
                 text-align: left;
-                font-size: 12px;
+                font-size: 10px;
                 text-transform: uppercase;
-                letter-spacing: 1px;
-                border-bottom: 2px solid #30363d;
+                letter-spacing: 0.08em;
+                font-weight: 700;
+                border-bottom: 1px solid #21262d;
+                font-family: 'Inter', sans-serif;
             }
             .analytics-table td {
-                padding: 8px 10px;
-                border-bottom: 1px solid #30363d;
-                font-size: 13px;
+                padding: 9px 12px;
+                border-bottom: 1px solid #21262d;
+                font-size: 12px;
+                font-family: 'JetBrains Mono', monospace;
             }
             .analytics-table tr:last-child td { border-bottom: none; }
 
             .add-btn-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 10px;
-                margin-top: 16px;
+                display: grid !important;
+                grid-template-columns: 1fr 1fr !important;
+                gap: 10px !important;
+                margin-top: 16px !important;
+                position: sticky !important;
+                bottom: 0 !important;
+                background: #161b22 !important;
+                padding: 12px 0 !important;
+                border-top: 1px solid #21262d !important;
             }
             .add-btn {
                 padding: 12px 16px;
@@ -1137,13 +1402,48 @@ app.index_string = """
                 font-size: 13px;
                 font-weight: 700;
                 transition: all 0.15s ease;
-                font-family: inherit;
+                font-family: 'Inter', sans-serif;
             }
             .add-btn:hover { transform: translateY(-2px); filter: brightness(1.15); }
-            .add-btn-long { background: rgba(46, 204, 113, 0.15); color: #2ecc71;
-                border: 1px solid rgba(46, 204, 113, 0.4); }
-            .add-btn-short { background: rgba(231, 76, 60, 0.15); color: #e74c3c;
-                border: 1px solid rgba(231, 76, 60, 0.4); }
+            .add-btn-long {
+                background: rgba(46, 204, 113, 0.12); color: #2ecc71;
+                border: 1px solid rgba(46, 204, 113, 0.35);
+            }
+            .add-btn-short {
+                background: rgba(231, 76, 60, 0.12); color: #e74c3c;
+                border: 1px solid rgba(231, 76, 60, 0.35);
+            }
+
+            #strike-modal { align-items: center !important; justify-content: center !important; }
+            #strike-modal-content {
+                max-height: 90vh !important;
+                overflow-y: auto !important;
+                margin: 0 auto !important;
+                scrollbar-width: thin;
+            }
+
+            @media (max-width: 900px) {
+                #main-grid { grid-template-columns: 1fr !important; }
+                #header {
+                    flex-direction: column !important;
+                    gap: 12px !important;
+                    padding: 12px 16px !important;
+                }
+                #header > div { width: 100% !important; justify-content: center !important; }
+                .live-price { font-size: 17px !important; padding: 5px 12px !important; }
+                .live-price .coin-icon { font-size: 18px !important; }
+                .ds-symbol { padding: 7px 12px !important; font-size: 12px !important; }
+                .ds-expiry { padding: 5px 10px !important; font-size: 10px !important; }
+                .ds-preset { padding: 7px 10px !important; font-size: 11px !important; }
+                .ds-action { padding: 5px 8px !important; font-size: 10px !important; }
+                .ds-theme { font-size: 14px !important; padding: 6px 10px !important; }
+                .ds-hint { display: none !important; }
+                #strike-modal-content { width: 95% !important; padding: 16px !important; }
+                .analytics-table td, .analytics-table th {
+                    padding: 6px 8px !important; font-size: 11px !important;
+                }
+                .add-btn { padding: 10px 12px !important; font-size: 11px !important; }
+            }
 
             @media (max-width: 1200px) {
                 #main-grid { grid-template-columns: 1fr !important; }
@@ -1166,14 +1466,17 @@ app.layout = html.Div([
     html.Div([
         html.Div([
             html.H1(id="app-title",
-                    style={"margin": "0", "fontSize": "22px", "fontWeight": "700"}),
+                    style={"margin": "0", "fontSize": "20px", "fontWeight": "800",
+                           "letterSpacing": "-0.02em"}),
             html.P(id="app-subtitle",
-                   style={"margin": "4px 0 0 0", "fontSize": "12px"}),
+                   style={"margin": "2px 0 0 0", "fontSize": "11px",
+                          "letterSpacing": "0.01em", "opacity": "0.7"}),
         ], style={"flex": "1"}),
         html.Div([
             html.Span(id="live-price-display", className="live-price",
                       children=[html.Span("₿", className="coin-icon"),
-                                html.Span("Loading...")]),
+                                html.Span("Loading..."),
+                                html.Span(className="live-dot")]),
         ], style={"flex": "1", "display": "flex", "justifyContent": "center"}),
         html.Div([
             html.Button("🇬🇷 / 🇬🇧", id="lang-toggle", n_clicks=0, className="ds-theme"),
@@ -1234,6 +1537,30 @@ app.layout = html.Div([
                 "marginLeft": "8px",
             },
         ),
+        html.Button(
+            id="save-strategy-btn",
+            n_clicks=0,
+            className="ds-preset",
+            style={
+                "background": "rgba(46,204,113,0.12)",
+                "color": "#2ecc71",
+                "border": "1px solid rgba(46,204,113,0.4)",
+                "fontWeight": "700",
+                "marginLeft": "8px",
+            },
+        ),
+        html.Button(
+            id="load-strategy-btn",
+            n_clicks=0,
+            className="ds-preset",
+            style={
+                "background": "rgba(155,89,182,0.12)",
+                "color": "#9b59b6",
+                "border": "1px solid rgba(155,89,182,0.4)",
+                "fontWeight": "700",
+                "marginLeft": "8px",
+            },
+        ),
         html.Span(id="presets-hint", className="ds-hint"),
     ], id="preset-row", style={"display": "flex", "alignItems": "center",
                                 "padding": "0 24px 12px 24px", "flexWrap": "wrap"}),
@@ -1258,37 +1585,25 @@ app.layout = html.Div([
             dag.AgGrid(
                 id="chain-grid",
                 columnDefs=[
-                    {"field": "c_bid", "headerName": "C Bid", "minWidth": 70, "flex": 1, "sortable": True,
-                     "valueFormatter": {"function": "params.value != null ? '$' + Number(params.value).toFixed(2) : ''"},
-                     "cellStyle": {"function": "{color: '#2ecc71', fontWeight: 600}"}},
-                    {"field": "c_ask", "headerName": "C Ask", "minWidth": 70, "flex": 1, "sortable": True,
-                     "valueFormatter": {"function": "params.value != null ? '$' + Number(params.value).toFixed(2) : ''"},
-                     "cellStyle": {"function": "{color: '#e74c3c', fontWeight: 600}"}},
-                    {"field": "c_iv", "headerName": "C IV", "minWidth": 60, "flex": 1, "sortable": True,
-                     "valueFormatter": {"function": "params.value ? Number(params.value).toFixed(1) + '%' : ''"}},
-                    {"field": "c_delta", "headerName": "C Δ", "minWidth": 60, "flex": 1, "sortable": True,
-                     "valueFormatter": {"function": "params.value != null ? Number(params.value).toFixed(3) : ''"},
-                     "cellStyle": {"function": "params.value == null ? {} : {color: '#9b59b6', fontWeight: 600}"}},
-                    {"field": "strike", "headerName": "STRIKE", "minWidth": 100, "flex": 1.2, "sortable": True,
-                     "valueFormatter": {"function": "params.value ? '$' + params.value.toLocaleString() : ''"},
-                     "cellStyle": {"function": "{color: '#f39c12', fontWeight: 800, fontSize: '13px', background: 'rgba(243,156,18,0.08)'}"}},
-                    {"field": "p_delta", "headerName": "P Δ", "minWidth": 60, "flex": 1, "sortable": True,
-                     "valueFormatter": {"function": "params.value != null ? Number(params.value).toFixed(3) : ''"},
-                     "cellStyle": {"function": "params.value == null ? {} : {color: '#9b59b6', fontWeight: 600}"}},
-                    {"field": "p_iv", "headerName": "P IV", "minWidth": 60, "flex": 1, "sortable": True,
-                     "valueFormatter": {"function": "params.value ? Number(params.value).toFixed(1) + '%' : ''"}},
-                    {"field": "p_ask", "headerName": "P Ask", "minWidth": 70, "flex": 1, "sortable": True,
-                     "valueFormatter": {"function": "params.value != null ? '$' + Number(params.value).toFixed(2) : ''"},
-                     "cellStyle": {"function": "{color: '#e74c3c', fontWeight: 600}"}},
-                    {"field": "p_bid", "headerName": "P Bid", "minWidth": 70, "flex": 1, "sortable": True,
-                     "valueFormatter": {"function": "params.value != null ? '$' + Number(params.value).toFixed(2) : ''"},
-                     "cellStyle": {"function": "{color: '#2ecc71', fontWeight: 600}"}},
+                    {"field": "c_bid", "headerName": "C Bid", "minWidth": 70, "flex": 1},
+                    {"field": "c_ask", "headerName": "C Ask", "minWidth": 70, "flex": 1},
+                    {"field": "c_iv", "headerName": "C IV", "minWidth": 60, "flex": 1},
+                    {"field": "c_delta", "headerName": "C Δ", "minWidth": 60, "flex": 1},
+                    {"field": "strike", "headerName": "STRIKE", "minWidth": 100, "flex": 1.2},
+                    {"field": "p_delta", "headerName": "P Δ", "minWidth": 60, "flex": 1},
+                    {"field": "p_iv", "headerName": "P IV", "minWidth": 60, "flex": 1},
+                    {"field": "p_ask", "headerName": "P Ask", "minWidth": 70, "flex": 1},
+                    {"field": "p_bid", "headerName": "P Bid", "minWidth": 70, "flex": 1},
                 ],
                 rowData=[],
                 style={"height": "calc(100vh - 460px)", "minHeight": "320px"},
                 className="ag-theme-alpine-dark",
                 dashGridOptions={
-                    "rowSelection": "single",
+                    "rowSelection": {
+                        "mode": "singleRow",
+                        "checkboxes": False,
+                        "enableClickSelection": True,
+                    },
                     "animateRows": False,
                     "suppressCellFocus": True,
                     "defaultColDef": {"sortable": True, "resizable": True},
@@ -1320,7 +1635,6 @@ app.layout = html.Div([
         "padding": "16px 24px",
     }),
 
-    # About modal
     html.Div([
         html.Div([
             html.Div([
@@ -1336,7 +1650,6 @@ app.layout = html.Div([
         ], id="about-content", style={}),
     ], id="about-modal", style={"display": "none"}),
 
-    # Analysis modal
     html.Div([
         html.Div([
             html.Div([
@@ -1352,7 +1665,6 @@ app.layout = html.Div([
         ], id="analysis-content", style={}),
     ], id="analysis-modal", style={"display": "none"}),
 
-    # Strike modal
     html.Div([
         html.Div([
             html.Div([
@@ -1368,7 +1680,6 @@ app.layout = html.Div([
         ], id="strike-modal-content", style={}),
     ], id="strike-modal", style={"display": "none"}),
 
-    # IV modal
     html.Div([
         html.Div([
             html.Div([
@@ -1384,6 +1695,36 @@ app.layout = html.Div([
         ], id="iv-modal-content", style={}),
     ], id="iv-modal", style={"display": "none"}),
 
+    html.Div([
+        html.Div([
+            html.Div([
+                html.Span(id="save-modal-title",
+                          style={"fontWeight": "700", "fontSize": "16px"}),
+                html.Button("✕", id="close-save-btn", n_clicks=0,
+                            style={"padding": "4px 10px", "borderRadius": "5px",
+                                   "border": "1px solid #30363d", "background": "transparent",
+                                   "color": "#e6edf3", "fontSize": "14px", "cursor": "pointer"}),
+            ], style={"display": "flex", "justifyContent": "space-between",
+                      "alignItems": "center", "marginBottom": "16px"}),
+            html.Div(id="save-modal-body"),
+        ], id="save-modal-content", style={}),
+    ], id="save-modal", style={"display": "none"}),
+
+    html.Div([
+        html.Div([
+            html.Div([
+                html.Span(id="load-modal-title",
+                          style={"fontWeight": "700", "fontSize": "16px"}),
+                html.Button("✕", id="close-load-btn", n_clicks=0,
+                            style={"padding": "4px 10px", "borderRadius": "5px",
+                                   "border": "1px solid #30363d", "background": "transparent",
+                                   "color": "#e6edf3", "fontSize": "14px", "cursor": "pointer"}),
+            ], style={"display": "flex", "justifyContent": "space-between",
+                      "alignItems": "center", "marginBottom": "16px"}),
+            html.Div(id="load-modal-body"),
+        ], id="load-modal-content", style={}),
+    ], id="load-modal", style={"display": "none"}),
+
     dcc.Interval(id="tick", interval=30000, n_intervals=0),
     dcc.Interval(id="price-tick", interval=10000, n_intervals=0),
     dcc.Store(id="theme-store", data="dark"),
@@ -1398,6 +1739,9 @@ app.layout = html.Div([
     dcc.Store(id="selected-strike-store", data=None),
     dcc.Store(id="strike-modal-open", data=False),
     dcc.Store(id="iv-modal-open", data=False),
+    dcc.Store(id="saved-strategies", data=[]),
+    dcc.Store(id="save-modal-open", data=False),
+    dcc.Store(id="load-modal-open", data=False),
 ], id="root", style={
     "minHeight": "100vh",
     "fontFamily": "Inter, -apple-system, Segoe UI, sans-serif",
@@ -1413,6 +1757,22 @@ COIN_ICONS = {"BTC": "₿", "ETH": "Ξ", "AAPL": "", "SPY": "📈", "TSLA": "�
 
 
 @callback(
+    Output("saved-strategies", "data", allow_duplicate=True),
+    Input("tick", "n_intervals"),
+    prevent_initial_call="initial_duplicate",
+)
+def init_saved_strategies(_n):
+    """Load saved strategies from DB on app startup and every 30s."""
+    try:
+        data = strategies_db.load_strategies()
+            if data:
+            return data
+        return no_update
+    except Exception as e:
+        print(f"[init_saved_strategies] error: {e}")
+        return no_update
+
+@callback(
     Output("live-price-display", "children"),
     Input("price-tick", "n_intervals"),
     Input("symbol-store", "data"),
@@ -1425,7 +1785,11 @@ def update_live_price(_, symbol):
     else:
         price = get_stock_spot(symbol)
     text = f"{symbol}: ${price:,.2f}" if price else f"{symbol}: —"
-    return [html.Span(icon, className="coin-icon"), html.Span(text)]
+    return [
+        html.Span(icon, className="coin-icon"),
+        html.Span(text),
+        html.Span(className="live-dot"),
+    ]
 
 
 @callback(Output("theme-store", "data"),
@@ -1466,7 +1830,6 @@ def toggle_iv_modal(n1, n2, current):
     return ctx.triggered_id == "iv-btn"
 
 
-# Strike modal open/close
 @callback(
     Output("strike-modal-open", "data"),
     Input("selected-strike-store", "data"),
@@ -1481,7 +1844,6 @@ def toggle_strike_modal(strike, n):
     return False
 
 
-# Analyze button — reads selected row and sets the strike
 @callback(
     Output("selected-strike-store", "data", allow_duplicate=True),
     Input("analyze-strike-btn", "n_clicks"),
@@ -1522,6 +1884,10 @@ def on_analyze_click(n, selected_rows):
     Output("about-title", "children"),
     Output("strike-modal-title", "children"),
     Output("iv-modal-title", "children"),
+    Output("save-strategy-btn", "children"),
+    Output("load-strategy-btn", "children"),
+    Output("save-modal-title", "children"),
+    Output("load-modal-title", "children"),
     Input("lang-store", "data"),
 )
 def render_language(lang):
@@ -1533,10 +1899,10 @@ def render_language(lang):
         s["preset_cc"], s["preset_cs"], s["preset_ic"], s["preset_st"],
         s["about_btn"], s["analysis_btn"], s["iv_btn"],
         s["guide_title"], s["strike_modal_title"], s["iv_title"],
+        s["sl_save_btn"], s["sl_load_btn"],
+        s["sl_save_title"], s["sl_load_title"],
     )
-
-
-# ============================================================
+    # ============================================================
 # STRIKE MODAL RENDER
 # ============================================================
 @callback(
@@ -1561,14 +1927,14 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
 
     modal_style = {"display": "flex", "position": "fixed", "top": "0", "left": "0",
                    "width": "100%", "height": "100%",
-                   "background": "rgba(0,0,0,0.8)",
+                   "background": "rgba(0,0,0,0.85)",
                    "justifyContent": "center", "alignItems": "center",
                    "zIndex": "9999", "padding": "20px"}
     content_style = {"background": t["panel"], "border": f"1px solid {t['border']}",
-                     "borderRadius": "12px", "padding": "24px",
-                     "maxWidth": "1200px", "width": "95%", "maxHeight": "92vh",
+                     "borderRadius": "12px", "padding": "28px",
+                     "maxWidth": "1300px", "width": "95%", "maxHeight": "92vh",
                      "overflowY": "auto", "color": t["text"]}
-    title_style = {"fontWeight": "700", "fontSize": "18px", "color": STRIKE}
+    title_style = {"fontWeight": "700", "fontSize": "20px", "color": STRIKE}
 
     symbol = symbol or "BTC"
     if symbol in CRYPTO_SYMBOLS:
@@ -1588,11 +1954,124 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
     is_crypto = symbol in CRYPTO_SYMBOLS
     contract_size = CRYPTO_CONTRACT if is_crypto else STOCK_CONTRACT
 
-    def row(label, cv, pv, color_c=None, color_p=None):
+    call_an = _analyze_single_option(spot, strike, "call",
+                                      (call_r or {}).get("premium", 0),
+                                      (call_r or {}).get("iv", 0), is_crypto)
+    put_an = _analyze_single_option(spot, strike, "put",
+                                     (put_r or {}).get("premium", 0),
+                                     (put_r or {}).get("iv", 0), is_crypto)
+
+    def _moneyness_badge(an):
+        mn = an["moneyness"]
+        if mn == "itm":
+            color, label = PROFIT, s["sm_moneyness_itm_short"]
+        elif mn == "atm":
+            color, label = WARN, s["sm_moneyness_atm_short"]
+        else:
+            color, label = LOSS, s["sm_moneyness_otm_short"]
+        return html.Span(label, style={
+            "background": f"{color}22", "color": color,
+            "border": f"1px solid {color}66",
+            "padding": "2px 10px", "borderRadius": "4px",
+            "fontSize": "11px", "fontWeight": "700",
+            "marginLeft": "8px",
+        })
+
+    what_is_call = s["sm_what_is_call"].format(
+        sym=symbol, strike=f"{strike:,.0f}",
+        breakeven=f"{call_an['breakeven']:,.2f}")
+    what_is_put = s["sm_what_is_put"].format(
+        sym=symbol, strike=f"{strike:,.0f}",
+        breakeven=f"{put_an['breakeven']:,.2f}")
+
+    section_what_is = html.Div([
+        html.H3(s["sm_what_is"], style={"fontSize": "15px", "marginTop": "0",
+                                         "color": STRIKE, "marginBottom": "12px"}),
+        html.Div([
+            html.Div([
+                html.Span("🔵 CALL", style={"color": CALL_COLOR, "fontWeight": "700",
+                                             "fontSize": "13px"}),
+                _moneyness_badge(call_an),
+                html.P(what_is_call, style={"fontSize": "13px", "margin": "8px 0 0 0",
+                                             "lineHeight": "1.6", "color": t["text"]}),
+            ], style={"flex": "1", "padding": "14px 16px",
+                       "background": "rgba(46,204,113,0.06)",
+                       "borderLeft": f"3px solid {CALL_COLOR}",
+                       "borderRadius": "8px"}),
+            html.Div([
+                html.Span("🔴 PUT", style={"color": PUT_COLOR, "fontWeight": "700",
+                                            "fontSize": "13px"}),
+                _moneyness_badge(put_an),
+                html.P(what_is_put, style={"fontSize": "13px", "margin": "8px 0 0 0",
+                                            "lineHeight": "1.6", "color": t["text"]}),
+            ], style={"flex": "1", "padding": "14px 16px",
+                       "background": "rgba(231,76,60,0.06)",
+                       "borderLeft": f"3px solid {PUT_COLOR}",
+                       "borderRadius": "8px"}),
+        ], style={"display": "flex", "gap": "16px", "marginBottom": "20px"}),
+    ])
+
+    def _status_row(label, value, color=None):
         return html.Tr([
-            html.Td(label, style={"color": t["muted"], "fontWeight": "600"}),
-            html.Td(cv, style={"color": color_c or t["text"], "fontWeight": "600"}),
-            html.Td(pv, style={"color": color_p or t["text"], "fontWeight": "600"}),
+            html.Td(label, style={"color": t["muted"], "padding": "6px 12px",
+                                   "fontSize": "12px", "fontWeight": "600"}),
+            html.Td(value, style={"color": color or t["text"], "padding": "6px 12px",
+                                   "fontSize": "13px", "fontWeight": "700"}),
+        ])
+
+    def _status_block(an, opt_color, title):
+        mn = an["moneyness"]
+        mn_label = s[f"sm_moneyness_{mn}"]
+        return html.Div([
+            html.H4(title, style={"color": opt_color, "fontSize": "13px",
+                                   "margin": "0 0 8px 0"}),
+            html.Table([
+                _status_row(s["sm_spot_now"], f"${spot:,.2f}", SPOT),
+                _status_row(s["sm_moneyness"], mn_label,
+                            PROFIT if mn == "itm" else (WARN if mn == "atm" else LOSS)),
+                _status_row(s["sm_intrinsic"], f"${an['intrinsic']:,.2f}", t["text"]),
+                _status_row(s["sm_time_value"], f"${an['time_value']:,.2f}", GREEK),
+                _status_row(s["sm_breakeven_short"], f"${an['breakeven']:,.2f}", WARN),
+                _status_row(s["capital_label"], f"${an['total_cost']:,.2f}", ACCENT),
+            ], style={"width": "100%"}),
+        ], style={"flex": "1", "padding": "14px 16px",
+                   "background": t["panel_alt"], "borderRadius": "8px",
+                   "border": f"1px solid {t['border']}"})
+
+    section_status = html.Div([
+        html.H3(s["sm_current_status"], style={"fontSize": "15px",
+                                                "color": SPOT, "marginBottom": "12px"}),
+        html.Div([
+            _status_block(call_an, CALL_COLOR, "🔵 CALL"),
+            _status_block(put_an, PUT_COLOR, "🔴 PUT"),
+        ], style={"display": "flex", "gap": "16px", "marginBottom": "20px"}),
+    ])
+
+    def _th(label, tooltip, color):
+        return html.Th([
+            html.Span(label, style={"color": color}),
+            html.Span(" ℹ️", title=tooltip, style={"cursor": "help",
+                                                     "opacity": "0.5",
+                                                     "fontSize": "10px"}),
+        ], style={"padding": "10px", "textAlign": "left",
+                   "borderBottom": f"2px solid {t['border']}",
+                   "fontSize": "12px", "textTransform": "uppercase",
+                   "letterSpacing": "0.5px"})
+
+    def _row(label, tooltip, cv, pv, color_c=None, color_p=None):
+        return html.Tr([
+            html.Td([
+                html.Span(label, style={"color": t["muted"], "fontWeight": "600"}),
+                html.Span(" ℹ️", title=tooltip,
+                          style={"cursor": "help", "opacity": "0.4",
+                                 "fontSize": "10px", "marginLeft": "4px"}),
+            ], style={"padding": "8px 10px", "borderBottom": f"1px solid {t['border']}"}),
+            html.Td(cv, style={"color": color_c or t["text"], "fontWeight": "600",
+                                "padding": "8px 10px",
+                                "borderBottom": f"1px solid {t['border']}"}),
+            html.Td(pv, style={"color": color_p or t["text"], "fontWeight": "600",
+                                "padding": "8px 10px",
+                                "borderBottom": f"1px solid {t['border']}"}),
         ])
 
     c_bid = f"${call_r['bid']:,.2f}" if call_r and call_r.get("bid") else "—"
@@ -1611,41 +2090,165 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
     p_prob = f"{put_r['prob_itm']*100:.1f}%" if put_r and put_r.get("prob_itm") is not None else "—"
     p_cap = f"${put_r['capital']:,.2f}" if put_r and put_r.get("capital") else "—"
 
+    contract_label = s["sm_contract_crypto"].format(sym=symbol) if is_crypto else s["sm_contract_stock"]
+
     analytics_table = html.Table([
         html.Thead([
             html.Tr([
-                html.Th(s["field"], style={"color": t["muted"]}),
-                html.Th(s["call_label"], style={"color": CALL_COLOR}),
-                html.Th(s["put_label"], style={"color": PUT_COLOR}),
+                _th(s["field"], "", t["muted"]),
+                _th(s["call_label"], "", CALL_COLOR),
+                _th(s["put_label"], "", PUT_COLOR),
             ])
         ]),
         html.Tbody([
-            row(s["strike_label"], f"${strike:,.2f}", f"${strike:,.2f}", STRIKE, STRIKE),
-            row("Bid", c_bid, p_bid, PROFIT, PROFIT),
-            row("Ask", c_ask, p_ask, LOSS, LOSS),
-            row(s["premium_label"], c_prem, p_prem),
-            row("IV", c_iv, p_iv),
-            row("Delta", c_delta, p_delta, GREEK, GREEK),
-            row(s["prob_itm_label"], c_prob, p_prob, PROFIT, PUT_COLOR),
-            row(s["capital_label"], c_cap, p_cap, ACCENT, ACCENT),
+            _row(s["strike_label"], s["sm_tooltip_strike"],
+                 f"${strike:,.2f}", f"${strike:,.2f}", STRIKE, STRIKE),
+            _row("Bid", s["sm_tooltip_bid"], c_bid, p_bid, PROFIT, PROFIT),
+            _row("Ask", s["sm_tooltip_ask"], c_ask, p_ask, LOSS, LOSS),
+            _row(s["premium_label"], s["sm_tooltip_premium"], c_prem, p_prem),
+            _row("IV", s["sm_tooltip_iv"].format(sym=symbol), c_iv, p_iv),
+            _row("Delta", s["sm_tooltip_delta"].format(sym=symbol),
+                 c_delta, p_delta, GREEK, GREEK),
+            _row(s["prob_itm_label"], s["sm_tooltip_prob"], c_prob, p_prob,
+                 PROFIT, PUT_COLOR),
+            _row(s["capital_label"], s["sm_tooltip_capital"].format(size=contract_label),
+                 c_cap, p_cap, ACCENT, ACCENT),
         ])
     ], className="analytics-table")
+
+    section_table = html.Div([
+        html.H3(s["sm_table_title"], style={"fontSize": "15px",
+                                             "color": STRIKE, "marginBottom": "12px"}),
+        analytics_table,
+        html.Div(f"ℹ️ {s['sm_contract_note'].format(size=contract_label)}",
+                 style={"fontSize": "11px", "color": t["muted"],
+                        "fontStyle": "italic", "marginTop": "8px"}),
+    ], style={"marginBottom": "20px"})
+
+    def _interpretation(an, opt_type, opt_label, opt_color):
+        prob = 0
+        if opt_type == "call" and call_r and call_r.get("prob_itm") is not None:
+            prob = call_r["prob_itm"] * 100
+        elif opt_type == "put" and put_r and put_r.get("prob_itm") is not None:
+            prob = put_r["prob_itm"] * 100
+        prem = (call_r or {}).get("premium", 0) if opt_type == "call" else (put_r or {}).get("premium", 0)
+        prem = prem or 0
+
+        if prob < 25:
+            pricing = s["sm_interp_cheap"].format(prem=f"{prem:,.2f}", prob=f"{prob:.1f}")
+        elif prob > 60:
+            pricing = s["sm_interp_expensive"].format(prem=f"{prem:,.2f}", prob=f"{prob:.1f}")
+        else:
+            pricing = s["sm_interp_mid"].format(prem=f"{prem:,.2f}", prob=f"{prob:.1f}")
+
+        return html.Div([
+            html.H4(opt_label, style={"color": opt_color, "fontSize": "13px",
+                                       "margin": "0 0 8px 0"}),
+            html.P(pricing, style={"fontSize": "13px", "margin": "0 0 8px 0",
+                                    "lineHeight": "1.5"}),
+            html.P(s["sm_interp_bullish"].format(sym=symbol),
+                   style={"fontSize": "12px", "margin": "4px 0",
+                          "color": PROFIT}),
+            html.P(s["sm_interp_bearish"].format(sym=symbol),
+                   style={"fontSize": "12px", "margin": "4px 0",
+                          "color": LOSS}),
+            html.P(s["sm_interp_neutral"], style={"fontSize": "12px",
+                                                    "margin": "4px 0",
+                                                    "color": t["muted"]}),
+        ], style={"flex": "1", "padding": "14px 16px",
+                   "background": "rgba(243,156,18,0.06)",
+                   "borderLeft": f"3px solid {WARN}",
+                   "borderRadius": "8px"})
+
+    section_interpret = html.Div([
+        html.H3(s["sm_interp_title"], style={"fontSize": "15px",
+                                              "color": WARN, "marginBottom": "12px"}),
+        html.Div([
+            _interpretation(call_an, "call", "🔵 CALL", CALL_COLOR),
+            _interpretation(put_an, "put", "🔴 PUT", PUT_COLOR),
+        ], style={"display": "flex", "gap": "16px", "marginBottom": "20px"}),
+    ])
+
+    def _example_block(an, opt_type, opt_color, opt_label):
+        up = an["example_up"]; down = an["example_down"]
+        up_color = PROFIT if up["pnl"] >= 0 else LOSS
+        down_color = PROFIT if down["pnl"] >= 0 else LOSS
+        up_result = s["sm_example_win"] if up["pnl"] >= 0 else s["sm_example_lose"]
+        down_result = s["sm_example_win"] if down["pnl"] >= 0 else s["sm_example_lose"]
+
+        def _ex_line(label, price, payoff, cost, pnl, pnl_color, result):
+            return html.Div([
+                html.Div(label.format(sym=symbol, price=f"{price:,.2f}"),
+                         style={"fontSize": "12px", "color": t["muted"],
+                                "marginBottom": "6px"}),
+                html.Div([
+                    html.Span(f"{s['sm_example_payoff']}: ", style={"color": t["muted"]}),
+                    html.Span(f"${payoff:+,.2f}", style={"fontWeight": "600"}),
+                    html.Span(f"  •  {s['sm_example_cost']}: ", style={"color": t["muted"],
+                                                                          "marginLeft": "10px"}),
+                    html.Span(f"${-cost:+,.2f}", style={"fontWeight": "600"}),
+                ], style={"fontSize": "12px", "marginBottom": "4px"}),
+                html.Div([
+                    html.Span(f"{s['sm_example_result']}: ", style={"color": t["muted"]}),
+                    html.Span(f"${pnl:+,.2f}", style={"fontWeight": "800",
+                                                        "color": pnl_color,
+                                                        "fontSize": "14px"}),
+                    html.Span(f"  {result}", style={"color": pnl_color,
+                                                      "fontWeight": "700",
+                                                      "fontSize": "11px",
+                                                      "marginLeft": "8px"}),
+                ], style={"fontSize": "12px"}),
+            ], style={"padding": "10px 12px", "background": t["panel"],
+                       "borderRadius": "6px", "marginBottom": "8px",
+                       "border": f"1px solid {t['border']}"})
+
+        prem = an["total_cost"]
+        up_payoff = up["pnl"] + prem
+        down_payoff = down["pnl"] + prem
+
+        return html.Div([
+            html.H4(f"💡 {opt_label}", style={"color": opt_color,
+                                                "fontSize": "13px",
+                                                "margin": "0 0 8px 0"}),
+            _ex_line(s["sm_example_up"], up["price"], up_payoff, prem,
+                     up["pnl"], up_color, up_result),
+            _ex_line(s["sm_example_down"], down["price"], down_payoff, prem,
+                     down["pnl"], down_color, down_result),
+        ], style={"flex": "1"})
+
+    section_example = html.Div([
+        html.H3(s["sm_example_title"], style={"fontSize": "15px",
+                                                "color": ACCENT, "marginBottom": "12px"}),
+        html.Div([
+            _example_block(call_an, "call", CALL_COLOR, "CALL"),
+            _example_block(put_an, "put", PUT_COLOR, "PUT"),
+        ], style={"display": "flex", "gap": "16px", "marginBottom": "20px"}),
+    ])
+
+    def _make_chart(an, opt_type, opt_color, title):
+        prem_usd = an["total_cost"] / an["contract_size"] if an["contract_size"] else 0
+        fig = make_single_option_chart(spot, strike, prem_usd,
+                                        opt_type, symbol, an["contract_size"])
+        fig.add_vline(x=an["breakeven"], line_dash="dash", line_color=WARN,
+                      line_width=1.5,
+                      annotation_text=f"BE ${an['breakeven']:,.0f}",
+                      annotation_position="top left",
+                      annotation_font=dict(color=WARN, size=10))
+        return fig
 
     call_chart = None
     if call_r:
         call_chart = dcc.Graph(
-            figure=make_single_option_chart(spot, strike, call_r.get("premium") or call_r.get("ask") or 0,
-                                            "call", symbol, contract_size),
-            config={"displayModeBar": False}, style={"height": "240px"})
+            figure=_make_chart(call_an, "call", CALL_COLOR, s["call_chart_title"]),
+            config={"displayModeBar": False}, style={"height": "260px"})
     else:
         call_chart = html.Div("No call data", style={"padding": "40px", "color": t["muted"]})
 
     put_chart = None
     if put_r:
         put_chart = dcc.Graph(
-            figure=make_single_option_chart(spot, strike, put_r.get("premium") or put_r.get("ask") or 0,
-                                            "put", symbol, contract_size),
-            config={"displayModeBar": False}, style={"height": "240px"})
+            figure=_make_chart(put_an, "put", PUT_COLOR, s["put_chart_title"]),
+            config={"displayModeBar": False}, style={"height": "260px"})
     else:
         put_chart = html.Div("No put data", style={"padding": "40px", "color": t["muted"]})
 
@@ -1660,28 +2263,90 @@ def render_strike_modal(is_open, strike, theme, lang, legs, symbol, rows):
                     style={"color": PUT_COLOR, "fontSize": "13px", "margin": "0 0 8px 0"}),
             put_chart,
         ], style={"flex": "1"}),
-    ], style={"display": "flex", "gap": "16px", "marginTop": "20px"})
+    ], style={"display": "flex", "gap": "16px", "marginBottom": "20px"})
 
-    def make_add_btn(label, strike_val, opt_type, side, className):
-        return html.Button(
-            label,
-            id={"type": "add-btn", "strike": str(strike_val), "opt": opt_type, "side": side},
-            n_clicks=0,
-            className=f"add-btn {className}",
-        )
+    def _greek_row(name, value_c, value_p, desc):
+        return html.Div([
+            html.Div([
+                html.Span(name, style={"fontWeight": "700", "color": GREEK,
+                                        "fontSize": "13px"}),
+                html.Span(f"  {desc}", style={"color": t["muted"],
+                                                "fontSize": "11px"}),
+            ], style={"marginBottom": "4px"}),
+            html.Div([
+                html.Span(f"🔵 CALL: {value_c}", style={"color": CALL_COLOR,
+                                                          "fontWeight": "600",
+                                                          "fontSize": "12px",
+                                                          "marginRight": "20px"}),
+                html.Span(f"🔴 PUT: {value_p}", style={"color": PUT_COLOR,
+                                                         "fontWeight": "600",
+                                                         "fontSize": "12px"}),
+            ]),
+        ], style={"padding": "8px 12px", "background": "rgba(155,89,182,0.06)",
+                   "borderLeft": f"3px solid {GREEK}",
+                   "borderRadius": "6px", "marginBottom": "6px"})
+
+    section_greeks = html.Div([
+        html.H3(s["sm_greeks_title"], style={"fontSize": "15px",
+                                               "color": GREEK, "marginBottom": "12px"}),
+        _greek_row("Delta", c_delta, p_delta, s["greek_delta_desc"]),
+        _greek_row("Gamma",
+                   f"{call_r['gamma']:+.6f}" if call_r and call_r.get("gamma") is not None else "—",
+                   f"{put_r['gamma']:+.6f}" if put_r and put_r.get("gamma") is not None else "—",
+                   s["greek_gamma_desc"]),
+        _greek_row("Theta",
+                   f"{call_r['theta']:+.4f}" if call_r and call_r.get("theta") is not None else "—",
+                   f"{put_r['theta']:+.4f}" if put_r and put_r.get("theta") is not None else "—",
+                   s["greek_theta_desc"]),
+        _greek_row("Vega",
+                   f"{call_r['vega']:+.4f}" if call_r and call_r.get("vega") is not None else "—",
+                   f"{put_r['vega']:+.4f}" if put_r and put_r.get("vega") is not None else "—",
+                   s["greek_vega_desc"]),
+    ], style={"marginBottom": "20px"})
+
+    def make_add_btn(label, sublabel, strike_val, opt_type, side, className, color):
+        return html.Div([
+            html.Button(
+                label,
+                id={"type": "add-btn", "strike": str(strike_val),
+                    "opt": opt_type, "side": side},
+                n_clicks=0,
+                className=f"add-btn {className}",
+                style={"width": "100%"},
+            ),
+            html.Div(sublabel, style={"fontSize": "11px", "color": color,
+                                       "textAlign": "center",
+                                       "marginTop": "4px",
+                                       "opacity": "0.85"}),
+        ], style={"display": "flex", "flexDirection": "column"})
 
     add_btns = html.Div([
-        make_add_btn(s["add_call_long"], strike, "call", "long", "add-btn-long"),
-        make_add_btn(s["add_call_short"], strike, "call", "short", "add-btn-short"),
-        make_add_btn(s["add_put_long"], strike, "put", "long", "add-btn-long"),
-        make_add_btn(s["add_put_short"], strike, "put", "short", "add-btn-short"),
+        make_add_btn(s["add_call_long"],
+                     s["sm_btn_explain_call_long"].format(sym=symbol,
+                                                           be=f"{call_an['breakeven']:,.0f}"),
+                     strike, "call", "long", "add-btn-long", PROFIT),
+        make_add_btn(s["add_call_short"],
+                     s["sm_btn_explain_call_short"].format(sym=symbol,
+                                                            be=f"{call_an['breakeven']:,.0f}"),
+                     strike, "call", "short", "add-btn-short", LOSS),
+        make_add_btn(s["add_put_long"],
+                     s["sm_btn_explain_put_long"].format(sym=symbol,
+                                                          be=f"{put_an['breakeven']:,.0f}"),
+                     strike, "put", "long", "add-btn-long", PROFIT),
+        make_add_btn(s["add_put_short"],
+                     s["sm_btn_explain_put_short"].format(sym=symbol,
+                                                           be=f"{put_an['breakeven']:,.0f}"),
+                     strike, "put", "short", "add-btn-short", LOSS),
     ], className="add-btn-grid")
 
     body = [
-        html.H3(s["analytics_table"], style={"fontSize": "15px", "marginTop": "0",
-                                              "color": STRIKE}),
-        analytics_table,
+        section_what_is,
+        section_status,
+        section_table,
+        section_interpret,
+        section_example,
         charts_row,
+        section_greeks,
         add_btns,
     ]
     return modal_style, content_style, title_style, body
@@ -1782,7 +2447,7 @@ def add_from_modal(n, legs, rows):
 
 
 # ============================================================
-# Existing callbacks
+# ABOUT MODAL
 # ============================================================
 @callback(Output("about-modal", "style"), Output("about-content", "style"),
           Output("about-title", "style"), Output("about-body", "children"),
@@ -1802,12 +2467,15 @@ def render_about_modal(is_open, theme, lang):
                      "overflowY": "auto", "color": t["text"]}
     title_style = {"fontWeight": "700", "fontSize": "16px", "color": t["text"]}
     if lang == "el":
-        body = """### 🛡️ Covered Call\nΑγοράζεις 0.1 BTC, πουλάς OTM call.\n\n### ↗️ Call Spread\nLong call + short πιο ψηλό call.\n\n### 🦅 Iron Condor\n4 legs.\n\n### ⚖️ Straddle\nLong call + long put.\n\n### 🔍 Analyze Button\nΠάτα το 🔍 δίπλα σε κάθε strike για λεπτομέρειες.\n\n### 📈 IV Button\nΠάτα το 📈 για να δεις το Volatility Smile."""
+        body = """### 🛡️ Covered Call\nΑγοράζεις 0.1 BTC, πουλάς OTM call.\n\n### ↗️ Call Spread\nLong call + short πιο ψηλό call.\n\n### 🦅 Iron Condor\n4 legs.\n\n### ⚖️ Straddle\nLong call + long put.\n\n### 🔍 Analyze Button\nΠάτα το 🔍 δίπλα σε κάθε strike για λεπτομέρειες.\n\n### 📈 IV Button\nΠάτα το 📈 για να δεις το Volatility Smile.\n\n### 💾 Save / 📂 Strategies\nΑποθήκευσε και φόρτωσε τις στρατηγικές σου."""
     else:
-        body = """### 🛡️ Covered Call\nBuy 0.1 BTC, sell OTM call.\n\n### ↗️ Call Spread\nLong call + short higher call.\n\n### 🦅 Iron Condor\n4 legs.\n\n### ⚖️ Straddle\nLong call + long put.\n\n### 🔍 Analyze Button\nPress 🔍 next to any strike for details.\n\n### 📈 IV Button\nPress 📈 to see the Volatility Smile."""
+        body = """### 🛡️ Covered Call\nBuy 0.1 BTC, sell OTM call.\n\n### ↗️ Call Spread\nLong call + short higher call.\n\n### 🦅 Iron Condor\n4 legs.\n\n### ⚖️ Straddle\nLong call + long put.\n\n### 🔍 Analyze Button\nPress 🔍 next to any strike for details.\n\n### 📈 IV Button\nPress 📈 to see the Volatility Smile.\n\n### 💾 Save / 📂 Strategies\nSave and load your strategies."""
     return modal_style, content_style, title_style, body
 
 
+# ============================================================
+# ANALYSIS MODAL
+# ============================================================
 @callback(
     Output("analysis-modal", "style"), Output("analysis-content", "style"),
     Output("analysis-title", "style"), Output("analysis-body", "children"),
@@ -1918,6 +2586,329 @@ def render_analysis_modal(is_open, legs, theme, lang, symbol, chain_rows):
     return modal_style, content_style, title_style, body
 
 
+# ============================================================
+# SAVE / LOAD STRATEGIES
+# ============================================================
+@callback(
+    Output("save-modal-open", "data"),
+    Output("load-modal-open", "data"),
+    Input("save-strategy-btn", "n_clicks"),
+    Input("load-strategy-btn", "n_clicks"),
+    Input("close-save-btn", "n_clicks"),
+    Input("close-load-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def toggle_sl_modals(n1, n2, n3, n4):
+    tid = ctx.triggered_id
+    if tid == "save-strategy-btn":
+        return True, False
+    if tid == "load-strategy-btn":
+        return False, True
+    return False, False
+
+
+@callback(
+    Output("save-modal", "style"),
+    Output("save-modal-content", "style"),
+    Output("save-modal-title", "style"),
+    Output("save-modal-body", "children"),
+    Input("save-modal-open", "data"),
+    Input("theme-store", "data"),
+    Input("lang-store", "data"),
+    Input("legs-store", "data"),
+    State("symbol-store", "data"),
+)
+def render_save_modal(is_open, theme, lang, legs, symbol):
+    t = THEMES[theme]
+    s = STRINGS[lang]
+
+    if not is_open:
+        return {"display": "none"}, {}, {}, ""
+
+    modal_style = {"display": "flex", "position": "fixed", "top": "0", "left": "0",
+                   "width": "100%", "height": "100%",
+                   "background": "rgba(0,0,0,0.8)",
+                   "justifyContent": "center", "alignItems": "center",
+                   "zIndex": "9999", "padding": "20px"}
+    content_style = {"background": t["panel"], "border": f"1px solid {t['border']}",
+                     "borderRadius": "12px", "padding": "24px",
+                     "maxWidth": "480px", "width": "95%",
+                     "color": t["text"]}
+    title_style = {"fontWeight": "700", "fontSize": "16px", "color": PROFIT}
+
+    symbol = symbol or "BTC"
+
+    if not legs:
+        body = [html.Div(s["sl_save_empty"],
+                          style={"padding": "12px 0", "color": t["muted"],
+                                 "fontSize": "13px"})]
+        return modal_style, content_style, title_style, body
+
+    legs_summary = html.Div([
+        html.Div([
+            html.Span(f"#{i+1} ", style={"color": t["muted"], "fontSize": "11px"}),
+            html.Span("LONG " if leg["side"] > 0 else "SHORT ",
+                      style={"color": PROFIT if leg["side"] > 0 else LOSS,
+                             "fontWeight": "700", "fontSize": "12px"}),
+            html.Span(
+                f"{leg['instrument']} (spot)" if leg["type"] == "underlying"
+                else f"{leg['type'].upper()} K=${leg['strike']:,.0f} @ ${leg['premium']:,.2f}",
+                style={"color": t["text"], "fontSize": "12px"}),
+        ], style={"padding": "3px 0", "borderBottom": f"1px solid {t['border']}"})
+        for i, leg in enumerate(legs)
+    ], style={"marginBottom": "16px", "maxHeight": "150px", "overflowY": "auto",
+              "padding": "10px 12px", "background": t["panel_alt"],
+              "borderRadius": "6px"})
+
+    body = [
+        html.Div([
+            html.Label(s["sl_save_name"],
+                       style={"fontSize": "12px", "fontWeight": "600",
+                              "color": t["muted"], "marginBottom": "6px",
+                              "display": "block"}),
+            dcc.Input(
+                id="save-name-input",
+                type="text",
+                placeholder=s["sl_save_placeholder"],
+                style={
+                    "width": "100%", "padding": "10px 14px",
+                    "borderRadius": "8px", "border": f"1px solid {t['border']}",
+                    "background": t["panel_alt"], "color": t["text"],
+                    "fontSize": "13px", "fontFamily": "Inter, sans-serif",
+                    "outline": "none",
+                },
+            ),
+        ], style={"marginBottom": "16px"}),
+        html.Div([
+            html.Div("🎯 LEGS:", style={"fontSize": "11px", "fontWeight": "700",
+                                          "color": t["muted"], "marginBottom": "8px",
+                                          "letterSpacing": "0.08em"}),
+            legs_summary,
+        ]),
+        html.Div([
+            html.Button(s["sl_save_confirm"], id="save-confirm-btn", n_clicks=0,
+                        style={"flex": "1", "padding": "11px 16px",
+                               "borderRadius": "8px", "border": "none",
+                               "background": f"linear-gradient(135deg, {PROFIT} 0%, #27ae60 100%)",
+                               "color": "#ffffff", "fontWeight": "700",
+                               "fontSize": "13px", "cursor": "pointer",
+                               "fontFamily": "Inter, sans-serif"}),
+            html.Button(s["sl_save_cancel"], id="save-cancel-btn", n_clicks=0,
+                        style={"flex": "1", "padding": "11px 16px",
+                               "borderRadius": "8px",
+                               "border": f"1px solid {t['border']}",
+                               "background": "transparent", "color": t["text"],
+                               "fontWeight": "600", "fontSize": "13px",
+                               "cursor": "pointer",
+                               "fontFamily": "Inter, sans-serif"}),
+        ], style={"display": "flex", "gap": "10px", "marginTop": "16px"}),
+        html.Div(id="save-feedback",
+                 style={"marginTop": "12px", "fontSize": "12px",
+                        "textAlign": "center"}),
+    ]
+    return modal_style, content_style, title_style, body
+
+
+@callback(
+    Output("saved-strategies", "data", allow_duplicate=True),
+    Output("save-feedback", "children"),
+    Output("save-modal-open", "data", allow_duplicate=True),
+    Input("save-confirm-btn", "n_clicks"),
+    Input("save-cancel-btn", "n_clicks"),
+    State("save-name-input", "value"),
+    State("legs-store", "data"),
+    State("symbol-store", "data"),
+    State("saved-strategies", "data"),
+    State("lang-store", "data"),
+    prevent_initial_call=True,
+)
+def save_strategy(n_confirm, n_cancel, name, legs, symbol, saved, lang):
+    tid = ctx.triggered_id
+    if tid == "save-cancel-btn":
+        return no_update, "", False
+    if tid != "save-confirm-btn":
+        return no_update, "", no_update
+    s = STRINGS[lang]
+    if not legs:
+        return no_update, s["sl_save_empty"], no_update
+    if not name or not name.strip():
+        return no_update, s["sl_save_no_name"], no_update
+
+    # Save to Postgres
+    new_id = strategies_db.save_strategy(name.strip(), symbol or "BTC", legs)
+    if new_id is None:
+        return no_update, "❌ DB error", no_update
+
+    # Build the new entry directly (don't re-query — avoids race conditions)
+    new_entry = {
+        "id": str(new_id),
+        "name": name.strip(),
+        "symbol": symbol or "BTC",
+        "legs": legs,
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    current = list(saved) if saved else []
+    current = [e for e in current if e.get("id") != str(new_id)]
+    updated = [new_entry] + current
+    return updated, s["sl_saved"], False
+
+
+@callback(
+    Output("load-modal", "style"),
+    Output("load-modal-content", "style"),
+    Output("load-modal-title", "style"),
+    Output("load-modal-body", "children"),
+    Input("load-modal-open", "data"),
+    Input("theme-store", "data"),
+    Input("lang-store", "data"),
+    Input("saved-strategies", "data"),
+)
+def render_load_modal(is_open, theme, lang, saved):
+    t = THEMES[theme]
+    s = STRINGS[lang]
+
+    if not is_open:
+        return {"display": "none"}, {}, {}, ""
+
+    modal_style = {"display": "flex", "position": "fixed", "top": "0", "left": "0",
+                   "width": "100%", "height": "100%",
+                   "background": "rgba(0,0,0,0.8)",
+                   "justifyContent": "center", "alignItems": "center",
+                   "zIndex": "9999", "padding": "20px"}
+    content_style = {"background": t["panel"], "border": f"1px solid {t['border']}",
+                     "borderRadius": "12px", "padding": "24px",
+                     "maxWidth": "560px", "width": "95%", "maxHeight": "85vh",
+                     "overflowY": "auto", "color": t["text"]}
+    title_style = {"fontWeight": "700", "fontSize": "16px", "color": GREEK}
+
+    if not saved:
+        body = [html.Div(s["sl_load_empty"],
+                          style={"padding": "20px 0", "color": t["muted"],
+                                 "fontSize": "13px", "textAlign": "center"})]
+        return modal_style, content_style, title_style, body
+
+    items = []
+    for entry in saved:
+        legs_count = len(entry.get("legs", []))
+        items.append(html.Div([
+            html.Div([
+                html.Div([
+                    html.Span(entry["name"],
+                              style={"fontWeight": "700", "fontSize": "14px",
+                                     "color": t["text"]}),
+                    html.Span(f"  ·  {entry.get('symbol', '')}",
+                              style={"color": ACCENT, "fontWeight": "600",
+                                     "fontSize": "12px"}),
+                ]),
+                html.Div([
+                    html.Span(f"{legs_count} {s['sl_legs_count']}",
+                              style={"color": t["muted"], "fontSize": "11px"}),
+                    html.Span(f"  ·  {s['sl_saved_at']}: {entry.get('saved_at', '')}",
+                              style={"color": t["muted"], "fontSize": "11px",
+                                     "marginLeft": "6px"}),
+                ], style={"marginTop": "2px"}),
+            ], style={"flex": "1"}),
+            html.Div([
+                html.Button(s["sl_load_btn_action"],
+                            id={"type": "load-strategy-item", "id": entry["id"]},
+                            n_clicks=0,
+                            style={"padding": "7px 14px", "borderRadius": "6px",
+                                   "border": "none",
+                                   "background": f"linear-gradient(135deg, {ACCENT} 0%, #4a8fe7 100%)",
+                                   "color": "#fff", "fontWeight": "700",
+                                   "fontSize": "11px", "cursor": "pointer",
+                                   "marginRight": "6px",
+                                   "fontFamily": "Inter, sans-serif"}),
+                html.Button(s["sl_delete_btn_action"],
+                            id={"type": "delete-strategy-item", "id": entry["id"]},
+                            n_clicks=0,
+                            style={"padding": "7px 14px", "borderRadius": "6px",
+                                   "border": f"1px solid {RED}44",
+                                   "background": f"{RED}22", "color": RED,
+                                   "fontWeight": "700", "fontSize": "11px",
+                                   "cursor": "pointer",
+                                   "fontFamily": "Inter, sans-serif"}),
+            ], style={"display": "flex", "alignItems": "center"}),
+        ], style={"display": "flex", "alignItems": "center",
+                   "padding": "12px 14px", "borderRadius": "8px",
+                   "background": t["panel_alt"], "marginBottom": "8px",
+                   "border": f"1px solid {t['border']}"}))
+
+    body = [
+        html.Div(s["sl_load_hint"], style={"fontSize": "12px",
+                                            "color": t["muted"],
+                                            "marginBottom": "12px"}),
+        html.Div(items),
+    ]
+    return modal_style, content_style, title_style, body
+
+
+@callback(
+    Output("legs-store", "data", allow_duplicate=True),
+    Output("symbol-store", "data", allow_duplicate=True),
+    Output("load-modal-open", "data", allow_duplicate=True),
+    Input({"type": "load-strategy-item", "id": dash_all}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def load_strategy(n):
+    if not ctx.triggered_id or isinstance(ctx.triggered_id, str):
+        return no_update, no_update, no_update
+
+    # If max clicks across all load buttons is 0, nobody clicked → skip
+    triggered_clicks = max(n) if isinstance(n, list) and n else (n or 0)
+    if triggered_clicks == 0:
+        return no_update, no_update, no_update
+
+    target_id = ctx.triggered_id.get("id")
+    if not target_id:
+        return no_update, no_update, no_update
+    
+    all_strats = strategies_db.load_strategies()
+    for entry in all_strats:
+        if entry["id"] == target_id:
+            return entry["legs"], entry.get("symbol", "BTC"), False
+    return no_update, no_update, no_update
+
+
+@callback(
+    Output("saved-strategies", "data", allow_duplicate=True),
+    Input({"type": "delete-strategy-item", "id": dash_all}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def delete_strategy(n):
+    # Only delete if the triggered button was ACTUALLY clicked (n_clicks > 0)
+    if not ctx.triggered_id or isinstance(ctx.triggered_id, str):
+        return no_update
+    # Get the actual n_clicks value for the triggered button
+    triggered_clicks = 0
+    if isinstance(n, list):
+        # find the n_clicks of the triggered button
+        try:
+            # n is a list of all values; ctx.triggered_prop_ids has the ID
+            for tid, prop in ctx.triggered_prop_ids.items():
+                # tid is a string representation; we need to extract value
+                pass
+        except Exception:
+            pass
+        triggered_clicks = max(n) if n else 0
+    else:
+        triggered_clicks = n or 0
+
+    # If max clicks across all buttons is 0, nobody clicked → skip
+    if triggered_clicks == 0:
+        return no_update
+
+    target_id = ctx.triggered_id.get("id")
+    if not target_id:
+        return no_update
+    
+    strategies_db.delete_strategy(target_id)
+    return strategies_db.load_strategies()
+
+
+# ============================================================
+# SYMBOLS / EXPIRIES
+# ============================================================
 @callback(Output("symbol-buttons", "children"),
           Input("symbol-store", "data"), Input("theme-store", "data"))
 def render_symbol_buttons(active, theme):
@@ -2015,16 +3006,29 @@ def fetch_rows(_, symbol, expiry, expiry_list):
 
 @callback(Output("chain-grid", "rowData"),
           Output("row-count", "children"),
+          Output("chain-grid", "selectedRows", allow_duplicate=True),
           Input("rows-store", "data"), Input("lang-store", "data"),
-          prevent_initial_call=True)
-def apply_chain_view(rows, lang):
+          State("symbol-store", "data"),
+          prevent_initial_call='initial_duplicate')
+def apply_chain_view(rows, lang, symbol):
     s = STRINGS[lang]
     if not rows:
-        return [], f"0 {s['contracts']}"
-    chain = build_chain_view(rows)
-    return chain, f"{len(chain)} strikes"
+        return [], f"0 {s['contracts']}", no_update
+
+    symbol = symbol or "BTC"
+    spot = get_crypto_spot(symbol) if symbol in CRYPTO_SYMBOLS else get_stock_spot(symbol)
+    if spot is None:
+        spot = rows[0]["strike"] if rows else 0
+
+    chain = build_chain_view(rows, spot=spot)
+    selected = [chain[0]] if chain else []
+
+    return chain, f"{len(chain)} strikes", selected
 
 
+# ============================================================
+# MANUAL ADD LONG / SHORT / UNDERLYING
+# ============================================================
 @callback(Output("legs-store", "data", allow_duplicate=True),
           Input("add-long-btn", "n_clicks"),
           State("chain-grid", "selectedRows"), State("legs-store", "data"),
@@ -2072,6 +3076,9 @@ def clear_legs(n):
     return [] if n else no_update
 
 
+# ============================================================
+# PRESETS
+# ============================================================
 @callback(Output("legs-store", "data", allow_duplicate=True),
           Input("preset-cc", "n_clicks"),
           State("symbol-store", "data"), State("rows-store", "data"),
@@ -2160,6 +3167,9 @@ def preset_straddle(n, symbol, rows):
              "premium": p.get("ask") or 0, "instrument": p["instrument"]}]
 
 
+# ============================================================
+# LEGS RENDER
+# ============================================================
 @callback(Output("legs-list", "children"),
           Input("legs-store", "data"), Input("theme-store", "data"), Input("lang-store", "data"))
 def render_legs(legs, theme, lang):
@@ -2179,26 +3189,77 @@ def render_legs(legs, theme, lang):
     return items
 
 
+# ============================================================
+# MAIN CHART
+# ============================================================
 @callback(Output("chart", "figure"),
-          Input("legs-store", "data"), State("symbol-store", "data"), State("theme-store", "data"),
+          Input("legs-store", "data"),
+          Input("chain-grid", "selectedRows"),
+          Input("rows-store", "data"),
+          State("symbol-store", "data"),
+          State("theme-store", "data"),
           prevent_initial_call=False)
-def update_chart(legs, symbol, theme):
-    symbol = symbol or "BTC"; theme = theme or "dark"
+def update_chart(legs, selected_rows, rows, symbol, theme):
+    symbol = symbol or "BTC"
+    theme = theme or "dark"
     spot = get_crypto_spot(symbol) if symbol in CRYPTO_SYMBOLS else get_stock_spot(symbol)
     if spot is None:
         spot = 100
+
     if legs:
         return make_multi_leg_chart(spot, legs, symbol, theme)
-    t = THEMES[theme]
-    fig = go.Figure()
-    fig.update_layout(paper_bgcolor=t["chart_bg"], plot_bgcolor=t["chart_bg"],
-                      font=dict(color=t["text"]),
-                      annotations=[dict(text="Add legs or pick a preset",
-                                        x=0.5, y=0.5, xref="paper", yref="paper",
-                                        showarrow=False, font=dict(color=t["muted"], size=14))])
-    return fig
+
+    if not rows:
+        t = THEMES[theme]
+        fig = go.Figure()
+        fig.update_layout(paper_bgcolor=t["chart_bg"], plot_bgcolor=t["chart_bg"],
+                          font=dict(color=t["text"]),
+                          annotations=[dict(text="Loading...",
+                                            x=0.5, y=0.5, xref="paper", yref="paper",
+                                            showarrow=False,
+                                            font=dict(color=t["muted"], size=14))])
+        return fig
+
+    if selected_rows:
+        strike = selected_rows[0].get("strike")
+    else:
+        all_strikes = sorted(set(r["strike"] for r in rows))
+        if all_strikes:
+            strike = min(all_strikes, key=lambda k: abs(k - spot))
+        else:
+            strike = None
+
+    if strike is None:
+        return go.Figure()
+
+    target = None
+    for r in rows:
+        if abs(r.get("strike", 0) - strike) < 0.01 and r["type"] == "call":
+            target = r
+            break
+    if target is None:
+        for r in rows:
+            if abs(r.get("strike", 0) - strike) < 0.01:
+                target = r
+                break
+
+    if target is None:
+        return go.Figure()
+
+    contract_size = CRYPTO_CONTRACT if symbol in CRYPTO_SYMBOLS else STOCK_CONTRACT
+    return make_single_option_chart(
+        spot,
+        strike,
+        target.get("premium") or target.get("bid") or 0,
+        target["type"],
+        symbol,
+        contract_size,
+    )
 
 
+# ============================================================
+# THEME APPLY
+# ============================================================
 @callback(Output("root", "style"), Output("header", "style"),
           Output("symbol-row", "style"), Output("expiry-row", "style"),
           Output("preset-row", "style"), Output("grid-panel", "style"),
@@ -2215,8 +3276,10 @@ def apply_theme(theme):
                   "fontFamily": "Inter, -apple-system, Segoe UI, sans-serif",
                   "background": t["bg"], "color": t["text"]}
     header_style = {"display": "flex", "alignItems": "center",
-                    "padding": "16px 24px", "background": t["panel"],
-                    "borderBottom": f"1px solid {t['border']}", "gap": "16px"}
+                    "padding": "14px 28px", "background": t["panel"],
+                    "borderBottom": f"1px solid {t['border']}", "gap": "16px",
+                    "backdropFilter": "blur(8px)",
+                    "position": "sticky", "top": "0", "zIndex": "100"}
     row_style = {"display": "flex", "alignItems": "center",
                  "padding": "12px 24px 0 24px", "flexWrap": "wrap",
                  "background": t["bg"], "color": t["text"]}
@@ -2226,9 +3289,9 @@ def apply_theme(theme):
     preset_style = {"display": "flex", "alignItems": "center",
                     "padding": "0 24px 12px 24px", "flexWrap": "wrap",
                     "background": t["bg"], "color": t["text"]}
-    panel_style = {"borderRadius": "8px", "overflow": "hidden",
+    panel_style = {"borderRadius": "10px", "overflow": "hidden",
                    "background": t["panel"], "border": f"1px solid {t['border']}",
-                   "boxShadow": t["shadow"]}
+                   "boxShadow": "0 1px 3px rgba(0,0,0,0.15), 0 8px 24px rgba(0,0,0,0.08)"}
     grid_header_style = {"padding": "12px 16px", "background": t["panel"],
                          "borderBottom": f"1px solid {t['border']}"}
     manual_row_style = {"padding": "0 16px 12px 16px", "borderBottom": f"1px solid {t['border']}"}
@@ -2236,11 +3299,12 @@ def apply_theme(theme):
                         "maxHeight": "180px", "overflowY": "auto",
                         "borderTop": f"1px solid {t['border']}"}
     main_grid_style = {"display": "grid", "gridTemplateColumns": "1.9fr 1.1fr",
-                       "gap": "16px", "padding": "16px 24px"}
-    button_style = {"fontSize": "18px", "padding": "8px 14px",
-                    "borderRadius": "10px", "cursor": "pointer",
+                       "gap": "16px", "padding": "20px 28px"}
+    button_style = {"fontSize": "15px", "padding": "8px 12px",
+                    "borderRadius": "8px", "cursor": "pointer",
                     "border": f"1px solid {t['border']}",
-                    "background": t["panel"], "color": t["text"]}
+                    "background": t["panel"], "color": t["text"],
+                    "fontWeight": "600"}
     btn_style = {"marginLeft": "12px", "background": t["btn_bg"], "color": t["text"],
                  "border": f"1px solid {t['border']}", "padding": "9px 14px",
                  "borderRadius": "8px", "fontSize": "12px", "fontWeight": "600",
@@ -2249,11 +3313,13 @@ def apply_theme(theme):
                           "color": t["text"], "border": f"1px solid {t['border']}",
                           "padding": "9px 14px", "borderRadius": "8px",
                           "fontSize": "12px", "fontWeight": "600", "cursor": "pointer"}
-    live_price_style = {"fontSize": "22px", "fontWeight": "700", "color": PROFIT,
-                        "fontFamily": "'Courier New', monospace", "letterSpacing": "1px",
-                        "padding": "6px 18px", "background": "rgba(46, 204, 113, 0.08)",
-                        "borderRadius": "10px", "border": "1px solid rgba(46, 204, 113, 0.3)",
-                        "display": "inline-flex", "alignItems": "center", "gap": "8px"}
+    live_price_style = {"fontSize": "20px", "fontWeight": "700", "color": PROFIT,
+                        "fontFamily": "'JetBrains Mono', monospace",
+                        "letterSpacing": "-0.02em",
+                        "padding": "7px 16px 7px 14px",
+                        "background": "rgba(46, 204, 113, 0.08)",
+                        "borderRadius": "10px", "border": "1px solid rgba(46, 204, 113, 0.25)",
+                        "display": "inline-flex", "alignItems": "center", "gap": "10px"}
     grid_class = t["grid_theme"]
     icon = "☀️" if theme == "dark" else "🌙"
     return (root_style, header_style, row_style, expiry_style, preset_style,

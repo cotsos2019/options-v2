@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 cache.db
 .DS_Store
+.env
+saved_strategies_backup.json
+*.log
+.pytest_cache/
