@@ -705,6 +705,101 @@ def _stock_row(r, symbol, expiry, opt_type, spot, T, r_rate):
         "oi": int(_clean(r.get("openInterest"))),
     }
 
+def _make_vol_renderer():
+    """JS cellRenderer for VOL column — bar + number."""
+    return {
+        "function": """
+        function(params) {
+            var val = params.value || 0;
+            var max = params.api.getColumnDef('volume')?.cellRendererParams?.max || 1000;
+            var pct = Math.min(100, (val / max) * 100);
+            var div = document.createElement('div');
+            div.className = 'vol-bar-cell';
+            var bar = document.createElement('div');
+            bar.className = 'vol-bar-fill';
+            bar.style.width = pct + '%';
+            var span = document.createElement('span');
+            span.className = 'vol-value';
+            span.textContent = val.toLocaleString();
+            div.appendChild(bar);
+            div.appendChild(span);
+            return div;
+        }
+        """
+    }
+
+
+def _make_oi_renderer():
+    """JS cellRenderer for OI column — bar + number."""
+    return {
+        "function": """
+        function(params) {
+            var val = params.value || 0;
+            var max = params.api.getColumnDef('oi')?.cellRendererParams?.max || 1000;
+            var pct = Math.min(100, (val / max) * 100);
+            var div = document.createElement('div');
+            div.className = 'oi-bar-cell';
+            var bar = document.createElement('div');
+            bar.className = 'oi-bar-fill';
+            bar.style.width = pct + '%';
+            var span = document.createElement('span');
+            span.className = 'oi-value';
+            span.textContent = val.toLocaleString();
+            div.appendChild(bar);
+            div.appendChild(span);
+            return div;
+        }
+        """
+    }
+
+
+def _make_vol_renderer():
+    """JS cellRenderer for VOL column — bar + number."""
+    return {
+        "function": """
+        function(params) {
+            var val = params.value || 0;
+            var max = params.cellRendererParams?.max || 1000;
+            var pct = Math.min(100, (val / max) * 100);
+            var div = document.createElement('div');
+            div.className = 'vol-bar-cell';
+            var bar = document.createElement('div');
+            bar.className = 'vol-bar-fill';
+            bar.style.width = pct + '%';
+            var span = document.createElement('span');
+            span.className = 'vol-value';
+            span.textContent = val.toLocaleString();
+            div.appendChild(bar);
+            div.appendChild(span);
+            return div;
+        }
+        """
+    }
+
+
+def _make_oi_renderer():
+    """JS cellRenderer for OI column — bar + number."""
+    return {
+        "function": """
+        function(params) {
+            var val = params.value || 0;
+            var max = params.cellRendererParams?.max || 1000;
+            var pct = Math.min(100, (val / max) * 100);
+            var div = document.createElement('div');
+            div.className = 'oi-bar-cell';
+            var bar = document.createElement('div');
+            bar.className = 'oi-bar-fill';
+            bar.style.width = pct + '%';
+            var span = document.createElement('span');
+            span.className = 'oi-value';
+            span.textContent = val.toLocaleString();
+            div.appendChild(bar);
+            div.appendChild(span);
+            return div;
+        }
+        """
+    }
+
 
 def build_chain_view(rows, spot=None):
     by_strike = {}
@@ -721,6 +816,10 @@ def build_chain_view(rows, spot=None):
     for k in sorted(by_strike.keys()):
         entry = by_strike[k]
         c = entry.get("call"); p = entry.get("put")
+        c_vol = (c.get("volume") or 0) if c else 0
+        p_vol = (p.get("volume") or 0) if p else 0
+        c_oi = (c.get("oi") or 0) if c else 0
+        p_oi = (p.get("oi") or 0) if p else 0
         chain_rows.append({
             "strike": k,
             "distance": abs(k - spot) if spot else k,
@@ -734,6 +833,8 @@ def build_chain_view(rows, spot=None):
             "p_iv": p.get("iv") if p else None,
             "p_delta": p.get("delta") if p else None,
             "p_instrument": p.get("instrument") if p else None,
+            "volume": round(c_vol + p_vol, 1),
+            "oi": round(c_oi + p_oi, 1),
         })
 
     if spot:
@@ -1141,6 +1242,9 @@ def _analyze_single_option(spot, strike, opt_type, premium, iv_pct, is_crypto):
 app = Dash(__name__)
 server = app.server
 
+           
+
+
 
 app.index_string = """
 <!DOCTYPE html>
@@ -1301,6 +1405,35 @@ app.index_string = """
                 70%  { box-shadow: 0 0 0 8px rgba(46, 204, 113, 0); }
                 100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
             }
+
+                        /* ============ VOLUME / OI BARS ============ */
+            .vol-bar-cell, .oi-bar-cell {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                width: 100%;
+                height: 100%;
+                padding: 0 4px;
+            }
+            .vol-bar-fill {
+                height: 6px;
+                background: linear-gradient(90deg, #2ecc71, #27ae60);
+                border-radius: 3px;
+                min-width: 2px;
+            }
+            .oi-bar-fill {
+                height: 6px;
+                background: linear-gradient(90deg, #58a6ff, #1f6feb);
+                border-radius: 3px;
+                min-width: 2px;
+            }
+            .vol-value, .oi-value {
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            .vol-value { color: #2ecc71; }
+            .oi-value { color: #58a6ff; }
 
             .exec-card {
                 background: rgba(31, 111, 235, 0.06);
@@ -1594,10 +1727,23 @@ app.layout = html.Div([
                     {"field": "p_iv", "headerName": "P IV", "minWidth": 60, "flex": 1},
                     {"field": "p_ask", "headerName": "P Ask", "minWidth": 70, "flex": 1},
                     {"field": "p_bid", "headerName": "P Bid", "minWidth": 70, "flex": 1},
+                    {
+                        "field": "volume", "headerName": "VOL", "minWidth": 110, "flex": 1.2,
+                        "cellRenderer": _make_vol_renderer(),
+                        "cellRendererParams": {"max": 5000},
+                        "headerTooltip": "Volume — πόσα contracts αγοράστηκαν σήμερα (Call + Put)",
+                    },
+                    {
+                        "field": "oi", "headerName": "OI", "minWidth": 110, "flex": 1.2,
+                        "cellRenderer": _make_oi_renderer(),
+                        "cellRendererParams": {"max": 5000},
+                        "headerTooltip": "Open Interest — πόσα contracts είναι ανοιχτά (Call + Put)",
+                    },
                 ],
                 rowData=[],
                 style={"height": "calc(100vh - 460px)", "minHeight": "320px"},
                 className="ag-theme-alpine-dark",
+                dangerously_allow_code=True,
                 dashGridOptions={
                     "rowSelection": {
                         "mode": "singleRow",
@@ -1765,7 +1911,7 @@ def init_saved_strategies(_n):
     """Load saved strategies from DB on app startup and every 30s."""
     try:
         data = strategies_db.load_strategies()
-            if data:
+        if data:
             return data
         return no_update
     except Exception as e:
