@@ -355,13 +355,20 @@ Dark (default) / Light
 | 26 | Save/Load strategies (localStorage αρχικά) |
 | 27 | Fixed AG Grid XSS warnings + grid improvements |
 | 28 | Postgres persistence + fix race condition σε delete/load + row selection click-anywhere |
+| 29 | VOL + OI στήλες + 30 strikes + bigger grid + chart modal button |
 
 ---
 
 ## Τι ΔΕΝ δουλεύει / εκκρεμότητες
 
+- cellRenderer για μπάρες VOL/OI — αφαιρέθηκε λόγω AG Grid 35.x XSS protection.
+- cellClicked event — δεν πυροδοτείται. Λύση: κουμπί "📊 Chart" στο μενού.
 - cellRenderer στο Strike column — αφαιρέθηκε λόγω AG Grid warning #101.
-- Λύση: κουμπί Analyze δίπλα στα presets.
+
+## Γνωστά Gotchas (update)
+
+16. **VOL/OI στήλες**: numbers only. Τα `cellRenderer` με JS function ΔΕΝ δουλεύουν στο AG Grid 35.x (XSS protection).
+17. **Chart button**: `show-chart-btn` χρησιμοποιεί `selectedRows` + `n_clicks` (όχι `cellClicked` που δεν πυροδοτείται).
 
 ---
 
@@ -426,4 +433,4 @@ git checkout <hash>
 - Professional UI (Inter + JetBrains Mono)
 - Deployed στο Render
 
-Status: COMPLETE (Stage 28)
+Status: COMPLETE (Stage 29)

@@ -13,6 +13,9 @@ Strike στη μέση (χρυσό), Calls αριστερά, Puts δεξιά
 
 C Bid / C Ask / C IV / C Δ και P Δ / P IV / P Ask / P Bid
 
+- **VOL + OI** (Volume & Open Interest) δίπλα στο Strike
+- **30 strikes** — τα πιο κοντινά στο spot
+
 Row selection με click anywhere
 
 Sorting σε όλες τις στήλες (1x asc, 2x desc, 3x clear)
@@ -65,6 +68,10 @@ PostgreSQL persistence — δεν χάνονται ποτέ
 Φόρτωση / Διαγραφή
 
 Multi-strategy support
+
+### 📊 Chart Modal
+- Κλίκαρε γραμμή → πάτα **📊 Chart**
+- Ανοίγει payoff chart για το strike
 
 🌍 Bilingual + Theme
 Ελληνικά / Αγγλικά (EL / EN)

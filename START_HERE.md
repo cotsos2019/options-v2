@@ -113,8 +113,10 @@ http://127.0.0.1:8051
 ### Βήμα 3: Δες το grid (Chain View)
 Το grid δείχνει:
 - Αριστερά: Calls (C Bid, C Ask, C IV, C Δ)
-- Μέση: Strike (χρυσό, bold)
+- Μέση: STRIKE + VOL + OI (Volume & Open Interest)
 - Δεξιά: Puts (P Δ, P IV, P Ask, P Bid)
+
+**Έχει 30 strikes** — τα πιο κοντινά στο spot.
 
 **Κλίκαρε οπουδήποτε στη γραμμή** για να την επιλέξεις (χωρίς checkboxes).
 
@@ -123,6 +125,13 @@ http://127.0.0.1:8051
 - 1ο κλικ → Ascending
 - 2ο κλικ → Descending
 - 3ο κλικ → Clear
+
+### Βήμα 4.5: 📊 Chart Button
+1. Κλίκαρε μια γραμμή στο grid (STRIKE).
+2. Πάτα **📊 Chart** (δίπλα στο + LONG / + SHORT).
+3. Ανοίγει modal με το payoff chart για το strike.
+
+**ΣΗΜΑΝΤΙΚΟ:** ΔΕΝ χρειάζεται να πατήσεις κελί στη στήλη 📊.
 
 ### Βήμα 5: 🔍 Analyze Modal (Educational)
 1. Κλίκαρε μια γραμμή στο grid.
@@ -355,7 +364,7 @@ SHORT PUT strike $85,000, Premium $1,200, Contract 0.1 BTC:
 
 ---
 
-## Τι έχουμε κάνει (Stages 1-28)
+## Τι έχουμε κάνει (Stages 1-29)
 
 | Stage | Τι κάναμε |
 |---|---|
@@ -376,6 +385,7 @@ SHORT PUT strike $85,000, Premium $1,200, Contract 0.1 BTC:
 | 26 | Save/Load strategies (localStorage αρχικά) |
 | 27 | Fixed AG Grid XSS warnings + grid improvements |
 | 28 | Postgres persistence + fix race condition σε delete/load + row selection click-anywhere |
+| 29 | VOL + OI στήλες + 30 strikes + bigger grid + chart modal button |
 
 ---
 
