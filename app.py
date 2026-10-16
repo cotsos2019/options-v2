@@ -1361,6 +1361,109 @@ app.index_string = """
                 font-size: 12px !important;
                 letter-spacing: -0.01em;
             }
+             /* ============ HEADER COLORS ============ */
+            .ag-theme-alpine-dark .ag-header-cell[col-id="c_bid"],
+            .ag-theme-alpine .ag-header-cell[col-id="c_bid"],
+            .ag-theme-alpine-dark .ag-header-cell[col-id="p_bid"],
+            .ag-theme-alpine .ag-header-cell[col-id="p_bid"] {
+                background: rgba(46, 204, 113, 0.15) !important;
+            }
+            .ag-theme-alpine-dark .ag-header-cell[col-id="c_ask"],
+            .ag-theme-alpine .ag-header-cell[col-id="c_ask"],
+            .ag-theme-alpine-dark .ag-header-cell[col-id="p_ask"],
+            .ag-theme-alpine .ag-header-cell[col-id="p_ask"] {
+                background: rgba(231, 76, 60, 0.15) !important;
+            }
+            .ag-theme-alpine-dark .ag-header-cell[col-id="c_iv"],
+            .ag-theme-alpine .ag-header-cell[col-id="c_iv"],
+            .ag-theme-alpine-dark .ag-header-cell[col-id="p_iv"],
+            .ag-theme-alpine .ag-header-cell[col-id="p_iv"] {
+                background: rgba(243, 156, 18, 0.15) !important;
+            }
+            .ag-theme-alpine-dark .ag-header-cell[col-id="c_delta"],
+            .ag-theme-alpine .ag-header-cell[col-id="c_delta"],
+            .ag-theme-alpine-dark .ag-header-cell[col-id="p_delta"],
+            .ag-theme-alpine .ag-header-cell[col-id="p_delta"] {
+                background: rgba(155, 89, 182, 0.15) !important;
+            }
+            .ag-theme-alpine-dark .ag-header-cell[col-id="volume"],
+            .ag-theme-alpine .ag-header-cell[col-id="volume"] {
+                background: rgba(46, 204, 113, 0.2) !important;
+            }
+            .ag-theme-alpine-dark .ag-header-cell[col-id="oi"],
+            .ag-theme-alpine .ag-header-cell[col-id="oi"] {
+                background: rgba(88, 166, 255, 0.2) !important;
+            }
+            .ag-theme-alpine-dark .ag-header-cell[col-id="strike"],
+            .ag-theme-alpine .ag-header-cell[col-id="strike"] {
+                background: rgba(243, 156, 18, 0.25) !important;
+            }
+            .ag-theme-alpine-dark .ag-header-cell[col-id="chart_btn"],
+            .ag-theme-alpine .ag-header-cell[col-id="chart_btn"] {
+                background: rgba(139, 148, 158, 0.15) !important;
+            }
+            /* ============ CENTER ALIGN ============ */
+            .ag-theme-alpine-dark .ag-header-cell-label,
+            .ag-theme-alpine .ag-header-cell-label {
+                justify-content: center !important;
+            }
+            .ag-theme-alpine-dark .ag-header-cell-comp-wrapper,
+            .ag-theme-alpine .ag-header-cell-comp-wrapper {
+                justify-content: center !important;
+            }
+            .ag-theme-alpine-dark .ag-cell,
+            .ag-theme-alpine .ag-cell {
+                text-align: center !important;
+            }
+            /* ============ COLUMN COLORS ============ */
+            .ag-theme-alpine-dark .ag-cell[col-id="c_bid"],
+            .ag-theme-alpine .ag-cell[col-id="c_bid"],
+            .ag-theme-alpine-dark .ag-cell[col-id="p_bid"],
+            .ag-theme-alpine .ag-cell[col-id="p_bid"] {
+                color: #2ecc71 !important;
+                font-weight: 600;
+            }
+            .ag-theme-alpine-dark .ag-cell[col-id="c_ask"],
+            .ag-theme-alpine .ag-cell[col-id="c_ask"],
+            .ag-theme-alpine-dark .ag-cell[col-id="p_ask"],
+            .ag-theme-alpine .ag-cell[col-id="p_ask"] {
+                color: #e74c3c !important;
+                font-weight: 600;
+            }
+            .ag-theme-alpine-dark .ag-cell[col-id="c_iv"],
+            .ag-theme-alpine .ag-cell[col-id="c_iv"],
+            .ag-theme-alpine-dark .ag-cell[col-id="p_iv"],
+            .ag-theme-alpine .ag-cell[col-id="p_iv"] {
+                color: #f39c12 !important;
+                font-weight: 600;
+            }
+            .ag-theme-alpine-dark .ag-cell[col-id="c_delta"],
+            .ag-theme-alpine .ag-cell[col-id="c_delta"],
+            .ag-theme-alpine-dark .ag-cell[col-id="p_delta"],
+            .ag-theme-alpine .ag-cell[col-id="p_delta"] {
+                color: #9b59b6 !important;
+                font-weight: 600;
+            }
+            .ag-theme-alpine-dark .ag-cell[col-id="volume"],
+            .ag-theme-alpine .ag-cell[col-id="volume"] {
+                color: #2ecc71 !important;
+                font-weight: 700;
+            }
+            .ag-theme-alpine-dark .ag-cell[col-id="oi"],
+            .ag-theme-alpine .ag-cell[col-id="oi"] {
+                color: #58a6ff !important;
+                font-weight: 700;
+            }
+            .ag-theme-alpine-dark .ag-cell[col-id="strike"],
+            .ag-theme-alpine .ag-cell[col-id="strike"] {
+                color: #f39c12 !important;
+                font-weight: 800;
+            }
+            .ag-theme-alpine-dark .ag-cell[col-id="chart_btn"],
+            .ag-theme-alpine .ag-cell[col-id="chart_btn"] {
+                cursor: pointer;
+                text-align: center;
+            }
             .ag-theme-alpine-dark .ag-row-selected {
                 background: rgba(31, 111, 235, 0.15) !important;
                 border-left: 3px solid #1f6feb !important;
@@ -1547,6 +1650,39 @@ app.index_string = """
                 border: 1px solid rgba(231, 76, 60, 0.35);
             }
 
+            /* ============ MOBILE GRID ============ */
+            @media (max-width: 900px) {
+                .ag-theme-alpine-dark .ag-header-cell[col-id="c_ask"],
+                .ag-theme-alpine .ag-header-cell[col-id="c_ask"],
+                .ag-theme-alpine-dark .ag-header-cell[col-id="c_iv"],
+                .ag-theme-alpine .ag-header-cell[col-id="c_iv"],
+                .ag-theme-alpine-dark .ag-header-cell[col-id="c_delta"],
+                .ag-theme-alpine .ag-header-cell[col-id="c_delta"],
+                .ag-theme-alpine-dark .ag-header-cell[col-id="p_ask"],
+                .ag-theme-alpine .ag-header-cell[col-id="p_ask"],
+                .ag-theme-alpine-dark .ag-header-cell[col-id="p_iv"],
+                .ag-theme-alpine .ag-header-cell[col-id="p_iv"],
+                .ag-theme-alpine-dark .ag-header-cell[col-id="p_delta"],
+                .ag-theme-alpine .ag-header-cell[col-id="p_delta"],
+                .ag-theme-alpine-dark .ag-cell[col-id="c_ask"],
+                .ag-theme-alpine .ag-cell[col-id="c_ask"],
+                .ag-theme-alpine-dark .ag-cell[col-id="c_iv"],
+                .ag-theme-alpine .ag-cell[col-id="c_iv"],
+                .ag-theme-alpine-dark .ag-cell[col-id="c_delta"],
+                .ag-theme-alpine .ag-cell[col-id="c_delta"],
+                .ag-theme-alpine-dark .ag-cell[col-id="p_ask"],
+                .ag-theme-alpine .ag-cell[col-id="p_ask"],
+                .ag-theme-alpine-dark .ag-cell[col-id="p_iv"],
+                .ag-theme-alpine .ag-cell[col-id="p_iv"],
+                .ag-theme-alpine-dark .ag-cell[col-id="p_delta"],
+                .ag-theme-alpine .ag-cell[col-id="p_delta"] {
+                    display: none !important;
+                }
+                .ag-theme-alpine-dark .ag-cell,
+                .ag-theme-alpine .ag-cell {
+                    font-size: 11px !important;
+                }
+            }
             #strike-modal { align-items: center !important; justify-content: center !important; }
             #strike-modal-content {
                 max-height: 90vh !important;
@@ -1720,27 +1856,7 @@ app.layout = html.Div([
 
             dag.AgGrid(
                 id="chain-grid",
-                columnDefs=[
-                    {"field": "c_bid", "headerName": "C Bid", "minWidth": 70, "flex": 1},
-                    {"field": "c_ask", "headerName": "C Ask", "minWidth": 70, "flex": 1},
-                    {"field": "c_iv", "headerName": "C IV", "minWidth": 60, "flex": 1},
-                    {"field": "c_delta", "headerName": "C Δ", "minWidth": 60, "flex": 1},
-                    {"field": "chart_btn", "headerName": "📊", "minWidth": 60, "maxWidth": 60,
-                     "cellStyle": {"cursor": "pointer", "textAlign": "center", "fontSize": "18px"}},
-                    {"field": "strike", "headerName": "STRIKE", "minWidth": 100, "flex": 1.2},
-                    {
-                        "field": "volume", "headerName": "VOL", "minWidth": 70, "flex": 1,
-                        "headerTooltip": "Volume — πόσα contracts αγοράστηκαν σήμερα (Call + Put)",
-                    },
-                    {
-                        "field": "oi", "headerName": "OI", "minWidth": 70, "flex": 1,
-                        "headerTooltip": "Open Interest — πόσα contracts είναι ανοιχτά (Call + Put)",
-                    },
-                    {"field": "p_delta", "headerName": "P Δ", "minWidth": 60, "flex": 1},
-                    {"field": "p_iv", "headerName": "P IV", "minWidth": 60, "flex": 1},
-                    {"field": "p_ask", "headerName": "P Ask", "minWidth": 70, "flex": 1},
-                    {"field": "p_bid", "headerName": "P Bid", "minWidth": 70, "flex": 1},
-                                    ],
+                columnDefs=[],
                 rowData=[],
                     style={"height": "calc(100vh - 260px)", "minHeight": "500px"},
                 className="ag-theme-alpine-dark",
@@ -3265,8 +3381,32 @@ def apply_chain_view(rows, lang, symbol):
 
     chain = build_chain_view(rows, spot=spot)
     selected = [chain[0]] if chain else []
-
     return chain, f"{len(chain)} strikes", selected
+
+@callback(
+    Output("chain-grid", "columnDefs"),
+    Input("symbol-store", "data"),
+    prevent_initial_call=False,
+)
+def update_grid_columns(_symbol):
+    full_columns = [
+        {"field": "c_bid", "headerName": "C Bid", "minWidth": 70, "flex": 1},
+        {"field": "c_ask", "headerName": "C Ask", "minWidth": 70, "flex": 1},
+        {"field": "c_iv", "headerName": "C IV", "minWidth": 60, "flex": 1},
+        {"field": "c_delta", "headerName": "C Δ", "minWidth": 60, "flex": 1},
+        {"field": "strike", "headerName": "STRIKE", "minWidth": 100, "flex": 1.2},
+        {"field": "volume", "headerName": "VOL", "minWidth": 70, "flex": 1,
+         "headerTooltip": "Volume — πόσα contracts αγοράστηκαν σήμερα"},
+        {"field": "oi", "headerName": "OI", "minWidth": 70, "flex": 1,
+         "headerTooltip": "Open Interest — πόσα contracts είναι ανοιχτά"},
+        {"field": "p_delta", "headerName": "P Δ", "minWidth": 60, "flex": 1},
+        {"field": "p_iv", "headerName": "P IV", "minWidth": 60, "flex": 1},
+        {"field": "p_ask", "headerName": "P Ask", "minWidth": 70, "flex": 1},
+        {"field": "p_bid", "headerName": "P Bid", "minWidth": 70, "flex": 1},
+    ]
+    return full_columns
+
+    
 
 
 # ============================================================
