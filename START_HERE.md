@@ -33,13 +33,21 @@ Live URL: https://options-v2.onrender.com
 ### 2. Εγκατέστησε Git
 Κατέβασε από https://git-scm.com
 
-### 3. Άνοιξε PowerShell και κατέβασε τον κώδικα
+### 3. Εγκατέστησε PostgreSQL
+Κατέβασε από https://www.postgresql.org/download/windows/
+Κατά την εγκατάσταση:
+- Password: γράψε ένα δικό σου, ΘΥΜΗΣΟΥ ΤΟ
+- Port: 5432 (default)
+- Locale: default
+- ΞΕΤΣΕΚΑΡΕ "Launch Stack Builder" στο τέλος
+
+### 4. Άνοιξε PowerShell και κατέβασε τον κώδικα
 
 cd C:\Users\Administrator\projects
 git clone https://github.com/user5461/options-v2.git
 cd options-v2
 
-### 4. Φτιάξε virtual environment
+### 5. Φτιάξε virtual environment
 
 python -m venv .venv
 .venv\Scripts\Activate.ps1
@@ -50,16 +58,38 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 Πάτα Y και Enter.
 
-### 5. Εγκατέστησε τα πακέτα
+### 6. Εγκατέστησε τα πακέτα
 
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 
-### 6. Τρέξε
+### 7. Φτιάξε τη βάση
+
+Άνοιξε νέο PowerShell:
+
+psql -U postgres
+CREATE DATABASE options_db;
+\q
+
+### 8. Φτιάξε το .env αρχείο
+
+Στο folder options-v2, φτιάξε αρχείο `.env` (με Notepad, Save As, All Files):
+
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=options_db
+DB_USER=postgres
+DB_PASSWORD=το_password_σου
+
+### 9. Δημιούργησε τον πίνακα στη βάση
+
+python -c "import db; db.init_db()"
+
+### 10. Τρέξε
 
 python app.py
 
-### 7. Άνοιξε browser
+### 11. Άνοιξε browser
 
 http://127.0.0.1:8051
 
@@ -73,7 +103,7 @@ http://127.0.0.1:8051
 - ETH (Ξ) — live crypto options
 - AAPL, SPY, TSLA, NVDA, MSFT, QQQ — delayed stock options (yfinance)
 
-Η live τιμή φαίνεται στο κέντρο του header με το coin logo.
+Η live τιμή φαίνεται στο κέντρο του header με το coin logo και ένα pulsing dot.
 
 ### Βήμα 2: Διάλεξε expiry
 Πάτα ένα expiry από τα κουμπιά (π.χ. 10OCT26, 17OCT26).
@@ -86,23 +116,26 @@ http://127.0.0.1:8051
 - Μέση: Strike (χρυσό, bold)
 - Δεξιά: Puts (P Δ, P IV, P Ask, P Bid)
 
+**Κλίκαρε οπουδήποτε στη γραμμή** για να την επιλέξεις (χωρίς checkboxes).
+
 ### Βήμα 4: Sort
 Κλίκαρε ένα header για sort:
 - 1ο κλικ → Ascending
 - 2ο κλικ → Descending
 - 3ο κλικ → Clear
 
-### Βήμα 5: 🔍 Analyze Modal
+### Βήμα 5: 🔍 Analyze Modal (Educational)
 1. Κλίκαρε μια γραμμή στο grid.
 2. Πάτα 🔍 Analyze (δίπλα στα presets).
 3. Ανοίγει modal με:
-   - Πίνακα analytics: Strike, Bid, Ask, Premium, IV, Delta, Prob ITM, Capital (CALL vs PUT δίπλα-δίπλα)
-   - 2 charts: Payoff CALL (Long) + Payoff PUT (Long)
-   - 4 κουμπιά:
-     - 🟢 ΑΓΟΡΑ CALL
-     - 🔴 ΠΟΥΛΑ CALL
-     - 🟢 ΑΓΟΡΑ PUT
-     - 🔴 ΠΟΥΛΑ PUT
+   - 📖 **Τι είναι αυτό το option;** — εξήγηση CALL & PUT + badge ITM/OTM/ATM
+   - 📍 **Τρέχουσα κατάσταση** — Spot, moneyness, intrinsic, time value, break-even, capital
+   - 📊 **Πίνακας δεδομένων** — Bid, Ask, Premium, IV, Delta, Prob ITM, Capital με tooltips (ℹ️)
+   - 💡 **Τι σημαίνει για μένα;** — interpretation + προτάσεις
+   - 🎯 **Παράδειγμα** — πραγματικά σενάρια (up/down)
+   - 📈 **Charts** — CALL & PUT payoff με break-even γραμμή
+   - 📐 **Greeks** — Delta, Gamma, Theta, Vega με explanations
+   - **4 κουμπιά** — 🟢 ΑΓΟΡΑ CALL / 🔴 ΠΟΥΛΑ CALL / 🟢 ΑΓΟΡΑ PUT / 🔴 ΠΟΥΛΑ PUT με εξήγηση από κάτω
 
 Πατάς ένα κουμπί → προστίθεται leg στη στρατηγική.
 
@@ -126,21 +159,41 @@ http://127.0.0.1:8051
 - 📍 Σημεία Ισορροπίας — Break-even vs full USD/BTC
 - ⚠️ Προειδοποιήσεις — Πού χάνεις USD, πού χάνεις BTC
 - 🎯 Legs — Τι έχεις προσθέσει
-- 📐 Greeks — Δ, Γ, Θ, V (συνολικά)
 - ⚙️ Εντολές Εκτέλεσης — BUY/SELL με νούμερα
 - 💰 Σύνοψη — Max profit, Max loss, Net cost
 - 📈 Chart — Διάγραμμα payoff
 - 🎲 6 Σενάρια — Πραγματικά νούμερα
 
-### Βήμα 9: ❓ Οδηγός
+### Βήμα 9: 📈 IV Chart (Volatility Smile)
+Πάτα 📈 για να δεις:
+- IV ανά strike (γράφημα)
+- Spot γραμμή
+- Εξήγηση τι σημαίνει το smile
+
+### Βήμα 10: 💾 Save / 📂 Load Strategies
+**Αποθήκευση:**
+1. Φτιάξε μια στρατηγική (legs)
+2. Πάτα 💾 Αποθήκευση
+3. Γράψε όνομα (π.χ. "BTC Covered Call")
+4. Πάτα ✅ Αποθήκευση
+
+**Φόρτωση:**
+1. Πάτα 📂 Στρατηγικές
+2. Βλέπεις τη λίστα με όλες τις αποθηκευμένες
+3. Πάτα **Φόρτωση** για να φορτώσεις
+4. Πάτα **Διαγραφή** για να διαγράψεις
+
+**ΣΗΜΑΝΤΙΚΟ:** Οι στρατηγικές αποθηκεύονται σε **Postgres**. ΔΕΝ χάνονται ποτέ — ούτε με refresh, ούτε με clear cache, ούτε με restart του app.
+
+### Βήμα 11: ❓ Οδηγός
 Γενικός οδηγός στρατηγικών + Greeks + contract sizes.
 
-### Βήμα 10: Γλώσσα & Theme
+### Βήμα 12: Γλώσσα & Theme
 - 🇬🇷 / 🇬🇧 — Αλλάζει όλα τα labels
 - ☀️ / 🌙 — Dark / Light mode
 
-### Βήμα 11: Καθαρισμός
-🗑️ Καθαρισμός για να αφαιρέσεις όλα τα legs.
+### Βήμα 13: Καθαρισμός
+🗑️ Καθαρισμός για να αφαιρέσεις όλα τα legs (ΔΕΝ διαγράφει αποθηκευμένες στρατηγικές).
 
 ---
 
@@ -213,6 +266,11 @@ git push
 | Analyze δεν δουλεύει | Τα IDs των κουμπιών πρέπει να είναι strings |
 | MaxListenersExceededWarning στη Console | MetaMask extension. Αγνόησέ το. |
 | AG Grid warning #101 | cellRenderer — γνωστό θέμα, δεν το χρησιμοποιούμε |
+| psql: command not found | Πρόσθεσε το C:\Program Files\PostgreSQL\16\bin στο PATH |
+| psycopg2 error | pip install psycopg2-binary |
+| ΔΕΝ φορτώνουν οι στρατηγικές | Έλεγξε το .env — host/port/user/password |
+| "ID not found in layout" | Κάποιο callback δείχνει σε ανύπαρκτο component ID |
+| Στρατηγικές χάνονται μετά από save | Το delete_strategy callback πυροδοτείται αυτόματα. Έλεγξε το triggered_clicks == 0 |
 
 ---
 
@@ -223,6 +281,7 @@ git push
 3. Αν σπάσει, γύρνα πίσω. Μη συνεχίσεις να σπας πάνω σε σπασμένο.
 4. Κάνε commit συχνά. Κάθε working βήμα = ένα commit.
 5. Διάβασε το NOTES_FOR_DEVELOPER.md πριν αλλάξεις κάτι σημαντικό.
+6. **ΜΗΝ αγγίζεις** τα `.env` και `saved_strategies_backup.json` — δεν ανεβαίνουν στο Git (σωστά).
 
 ---
 
@@ -231,6 +290,8 @@ git push
 - GitHub repo: https://github.com/user5461/options-v2
 - Render dashboard: https://dashboard.render.com
 - Live app: https://options-v2.onrender.com
+- Deribit API docs: https://docs.deribit.com/
+- yfinance docs: https://github.com/ranaroussi/yfinance
 
 ---
 
@@ -250,6 +311,7 @@ Option = συμβόλαιο που σου δίνει το δικαίωμα (όχ
 - IV (Implied Volatility) = πόσο volatile αναμένει η αγορά
 - Capital = πόσα χρήματα χρειάζεσαι για 1 contract
 - Break-even = η τιμή όπου δεν κερδίζεις ούτε χάνεις
+- Moneyness = ITM (In The Money) / ATM (At The Money) / OTM (Out of The Money)
 
 ### Greeks
 
@@ -293,7 +355,7 @@ SHORT PUT strike $85,000, Premium $1,200, Contract 0.1 BTC:
 
 ---
 
-## Τι έχουμε κάνει (Stages 1-22B)
+## Τι έχουμε κάνει (Stages 1-28)
 
 | Stage | Τι κάναμε |
 |---|---|
@@ -307,7 +369,13 @@ SHORT PUT strike $85,000, Premium $1,200, Contract 0.1 BTC:
 | 20 | 0.1 BTC contract size + Options-Lab presentation |
 | 21 | Live price in header + Outcomes για όλα τα presets |
 | 22A | Chain view grid + coin logos + sorting |
-| 22B | 🔍 Analyze button + Modal (COMPLETE) |
+| 22B | 🔍 Analyze button + Modal |
+| 23 | 📈 IV Chart (Volatility Smile) |
+| 24 | Educational Analyze Modal |
+| 25 | Professional UI (Inter + JetBrains Mono, pulsing dot) |
+| 26 | Save/Load strategies (localStorage αρχικά) |
+| 27 | Fixed AG Grid XSS warnings + grid improvements |
+| 28 | Postgres persistence + fix race condition σε delete/load + row selection click-anywhere |
 
 ---
 
@@ -320,3 +388,28 @@ C:\Users\Administrator\projects\options-v2\NOTES_FOR_DEVELOPER.md.
 Θέλω να προσθέσουμε: [ΤΙ ΘΕΣ]"
 
 Ο AI θα διαβάσει το αρχείο και θα ξέρει τα πάντα για το project.
+
+---
+
+## Γρήγορη αναφορά — Commands
+
+### Τοπικό run
+cd C:\Users\Administrator\projects\options-v2
+.venv\Scripts\Activate.ps1
+python app.py
+
+### Database
+psql -U postgres -d options_db
+SELECT id, name, symbol, created_at FROM strategies;
+\q
+
+### Git
+git add .
+git commit -m "message"
+git push
+
+### DB Test
+python -c "import db; print('Count:', db.count_strategies())"
+
+### Καθάρισμα βάσης
+python -c "import db; conn = db._conn(); cur = conn.cursor(); cur.execute('DELETE FROM strategies'); conn.commit(); print('Cleared:', cur.rowcount)"

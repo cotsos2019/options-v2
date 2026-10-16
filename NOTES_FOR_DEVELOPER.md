@@ -3,7 +3,7 @@
 ## Project: Options Dashboard v2
 
 ### Τι είναι
-Dash web app για options data — crypto (Deribit, live) + stocks (yfinance, delayed). Chain view grid, multi-leg strategy builder, Greeks, chain analytics, per-strike Analyze modal, bilingual (EL/EN), dark/light theme.
+Dash web app για options data — crypto (Deribit, live) + stocks (yfinance, delayed). Chain view grid, multi-leg strategy builder, Greeks, educational Analyze modal, Volatility Smile, Save/Load strategies με Postgres, bilingual (EL/EN), dark/light theme, professional UI.
 
 ### URLs
 - Live: https://options-v2.onrender.com
@@ -22,6 +22,8 @@ C:\Users\Administrator\projects\options-v2
 - Plotly 7.x
 - requests + urllib3
 - yfinance + curl_cffi
+- PostgreSQL (local: options_db) + psycopg2-binary
+- python-dotenv
 - gunicorn
 
 ## requirements.txt
@@ -32,6 +34,8 @@ requests
 urllib3
 yfinance
 curl_cffi
+psycopg2-binary
+python-dotenv
 gunicorn
 
 ---
@@ -39,14 +43,17 @@ gunicorn
 ## Δομή αρχείων
 
 options-v2/
-- app.py                    # ΟΛΟΣ ο κώδικας (single-file)
+- app.py                      # ΟΛΟΣ ο κώδικας (single-file)
+- db.py                       # Postgres helpers
+- .env                        # DB credentials (ΔΕΝ ανεβαίνει στο Git)
 - requirements.txt
-- Procfile                  # "web: gunicorn app:server"
-- runtime.txt               # "python-3.12.3"
+- Procfile                    # "web: gunicorn app:server"
+- runtime.txt                 # "python-3.12.3"
 - .gitignore
 - NOTES_FOR_DEVELOPER.md
 - START_HERE.md
-- app_v2_stage21_backup.py  # backup πριν από chain view
+- README.md
+- app_v2_stage21_backup.py    # backup πριν από chain view
 - .venv/
 
 ---
@@ -58,7 +65,7 @@ Stocks (AAPL, SPY, TSLA, NVDA, MSFT, QQQ): 1 option contract = 100 shares
 
 Χρησιμοποιείται σε όλους τους υπολογισμούς (Capital, Payoff, Greeks).
 
-Παράδειγμα: Premium = $3,212.78 (ανά BTC) -> total cost = $3,212.78 × 0.1 = $321.28.
+Παράδειγμα: Premium = $3,212.78 (ανά BTC) → total cost = $3,212.78 × 0.1 = $321.28.
 
 ---
 
@@ -80,7 +87,7 @@ Endpoints:
 
 ### Stocks — yfinance
 
-ΚΡΙΣΙΜΟ: Windows SSL error -> shared session με curl_cffi:
+ΚΡΙΣΙΜΟ: Windows SSL error → shared session με curl_cffi:
   _stock_session = curl_requests.Session(impersonate="chrome")
   _stock_session.verify = False
 
@@ -88,6 +95,43 @@ Endpoints:
 
 - Expiry format: 2026-10-16 (ISO).
 - ΔΕΝ δίνει Greeks — υπολογίζονται με Black-Scholes από το IV.
+
+---
+
+## Database (Postgres)
+
+### Σύνδεση
+Credentials στο `.env` (ΔΕΝ ανεβαίνει στο Git):
+
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=options_db
+DB_USER=postgres
+DB_PASSWORD=***
+
+### Πίνακας strategies
+
+CREATE TABLE strategies (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(200) NOT NULL,
+    symbol      VARCHAR(20) NOT NULL,
+    legs        JSONB NOT NULL,
+    created_at  TIMESTAMP DEFAULT NOW(),
+    updated_at  TIMESTAMP DEFAULT NOW()
+);
+
+### db.py functions
+- init_db() — δημιουργεί table αν δεν υπάρχει
+- save_strategy(name, symbol, legs) → επιστρέφει id ή None
+- load_strategies() → επιστρέφει list από dicts (newest first)
+- delete_strategy(strategy_id) → True/False
+- count_strategies() → int
+
+### Πώς να δεις τη βάση
+
+psql -U postgres -d options_db
+SELECT id, name, symbol, created_at FROM strategies;
+\q
 
 ---
 
@@ -108,6 +152,10 @@ Endpoints:
 | analysis-open | Boolean |
 | strike-modal-open | Boolean |
 | selected-strike-store | Για το modal του strike |
+| iv-modal-open | Boolean (για IV chart modal) |
+| saved-strategies | Λίστα στρατηγικών (in-memory, γεμίζει από DB) |
+| save-modal-open | Boolean |
+| load-modal-open | Boolean |
 
 ### Leg format
 
@@ -153,21 +201,24 @@ r = 0.045. T υπολογίζεται από expiry label (crypto: 10OCT26, stoc
 
 ---
 
-## Features (Stage 22B — COMPLETE)
+## Features (Stage 28 — COMPLETE)
 
 ### Grid — Chain View
 
-- Strike στη μέση (χρυσό, bold, underlined)
+- Strike στη μέση (χρυσό, bold)
 - Calls αριστερά (C Bid, C Ask, C IV, C Δ)
 - Puts δεξιά (P Δ, P IV, P Ask, P Bid)
-- Bid = πράσινο, Ask = κόκκινο
 - Headers: Calls πράσινα, Puts κόκκινα, Strike χρυσό
+- Row selection με click (χωρίς checkboxes)
+- Highlight στη selected row
+- Mono font για νούμερα (JetBrains Mono)
 - Sorting: built-in AG Grid (1x asc, 2x desc, 3x clear)
 
 ### Live Price
 
 - Κέντρο header, πράσινο
 - Coin logo μπροστά (₿ για BTC, Ξ για ETH, 📈 για SPY, κλπ.)
+- Pulsing dot (live indicator)
 - Ανανεώνεται κάθε 10 δευτερόλεπτα
 
 ### Presets (auto από spot)
@@ -184,37 +235,42 @@ r = 0.045. T υπολογίζεται από expiry label (crypto: 10OCT26, stoc
 - + LONG / + SHORT — χρησιμοποιεί το call της επιλεγμένης γραμμής
 - + Underlying — long το υποκείμενο
 
-### Analyze Modal (22B — ΝΕΟ)
+### Educational Analyze Modal (Stage 24)
 
-- Κουμπί Analyze δίπλα στα presets
-- Λογική:
-  1. Πατάς μια γραμμή στο grid (επιλέγεται).
-  2. Πατάς Analyze.
-  3. Ανοίγει modal με το strike της επιλεγμένης γραμμής.
-- Modal περιέχει:
-  - Πίνακας analytics: Strike, Bid, Ask, Premium, IV, Delta, Prob ITM, Capital (CALL vs PUT δίπλα-δίπλα)
-  - 2 charts: Payoff CALL (Long) + Payoff PUT (Long)
-  - 4 κουμπιά:
-    - ΑΓΟΡΑ CALL
-    - ΠΟΥΛΑ CALL
-    - ΑΓΟΡΑ PUT
-    - ΠΟΥΛΑ PUT
-- ΚΡΙΣΙΜΟ (fix 22B):
-  - Τα IDs των κουμπιών: {"type": "add-btn", "strike": str(strike_val), "opt": ..., "side": ...}
-  - ΠΡΕΠΕΙ να είναι strings — όχι αριθμοί.
-  - Το callback add_from_modal κάνει float(ctx.triggered_id["strike"]).
+Περιέχει:
+- 📖 Τι είναι αυτό το option; — CALL & PUT explanation + moneyness badge (ITM/OTM/ATM)
+- 📍 Τρέχουσα κατάσταση — Spot, moneyness, intrinsic, time value, break-even, capital
+- 📊 Πίνακας δεδομένων — Bid, Ask, Premium, IV, Delta, Prob ITM, Capital με tooltips (ℹ️)
+- 💡 Τι σημαίνει για μένα; — interpretation + προτάσεις
+- 🎯 Παράδειγμα — πραγματικά σενάρια (up/down)
+- 📈 Charts — CALL & PUT payoff με break-even γραμμή
+- 📐 Greeks — Delta, Gamma, Theta, Vega με explanations
+- 4 κουμπιά — ΑΓΟΡΑ/ΠΟΥΛΑ CALL/PUT με εξήγηση από κάτω
 
 ### Analysis Modal
 
-- Αποτελέσματα στη Λήξη (2-3 σενάρια ανά preset)
-- Σημεία Ισορροπίας (Even vs full USD/BTC)
+- Αποτελέσματα στη Λήξη
+- Σημεία Ισορροπίας
 - Προειδοποιήσεις
 - Legs
-- Greeks (συνολικά)
 - Εντολές Εκτέλεσης
 - Σύνοψη (max profit, max loss, net cost)
 - Chart payoff
 - Όλα τα Σενάρια (6)
+
+### IV Chart Modal (Volatility Smile)
+
+- IV ανά strike
+- Spot γραμμή
+- Bilingual hints
+
+### Save / Load Strategies
+
+- Save: γράφει στη Postgres
+- Load: διαβάζει από Postgres
+- Delete: διαγράφει από Postgres
+- LocalStorage ΔΕΝ χρησιμοποιείται πια
+- Auto-init στην εκκίνηση μέσω callback init_saved_strategies
 
 ### About Modal
 
@@ -238,10 +294,16 @@ Dark (default) / Light
 | Spot | #58a6ff |
 | Accent | #1f6feb |
 | Greeks | #9b59b6 |
+| Warning | #f39c12 |
 
 ### Language
 
 Ελληνικά (default) / Αγγλικά — όλα τα labels αλλάζουν μέσω lang-store.
+
+### Fonts
+
+- Inter — UI text
+- JetBrains Mono — νούμερα, grid cells
 
 ### Layout
 
@@ -254,18 +316,21 @@ Dark (default) / Light
 
 ## Γνωστά Gotchas
 
-1. Dash "Duplicate Output" -> allow_duplicate=True
+1. Dash "Duplicate Output" → allow_duplicate=True
 2. Αριθμός outputs = return values
 3. ALL as dash_all στην αρχή
-4. Deribit prices σε BTC -> ×spot για USD
-5. yfinance shared session
+4. Deribit prices σε BTC → ×spot για USD
+5. yfinance shared session με curl_cffi, verify=False
 6. Δύο expiry formats: 10OCT26 (crypto), 2026-10-16 (stocks)
 7. Contract sizes: crypto=0.1, stocks=100
 8. Render sleep: 30-60s wake up
 9. Local port 8051, Render: PORT env var
 10. Browser cache μετά deploy: Ctrl+F5 (όχι μόνο Ctrl+Shift+R)
-11. AG Grid cellRenderer: ΔΕΝ δουλεύει με {"function": "..."} για DOM elements. Warning #101.
-12. Pattern-matching IDs: ΠΡΕΠΕΙ να είναι strings. Όχι αριθμοί.
+11. AG Grid: ΟΧΙ {"function": "..."} σε valueFormatter/cellStyle — σκάει το AG Grid 35.x με XSS warning
+12. Pattern-matching IDs: ΠΡΕΠΕΙ να είναι strings (όχι numbers)
+13. AG Grid rowSelection: {"mode": "singleRow", "checkboxes": False, "enableClickSelection": True} — αλλιώς θέλει κλικ στο checkbox
+14. Pattern-matching callbacks με dash_all: Το callback ΠΥΡΟΔΟΤΕΙΤΑΙ ΑΥΤΟΜΑΤΑ όταν δημιουργούνται νέα components (π.χ. νέα delete buttons) → ΕΛΕΓΧΕ πάντα max(n) if isinstance(n, list) else n και if triggered_clicks == 0: return no_update
+15. Postgres race condition: Το render_load_modal ΔΕΝ πρέπει να καλεί load_strategies() — χρησιμοποίησε το store
 
 ---
 
@@ -273,17 +338,23 @@ Dark (default) / Light
 
 | Stage | Τι κάναμε |
 |---|---|
-| 1-7 | BTC -> ETH -> Stocks -> Multi-leg -> Presets -> Deploy |
+| 1-7 | BTC → ETH → Stocks → Multi-leg → Presets → Deploy |
 | 8-9 | Filters + Crypto prices σε USD |
 | 10-11 | Volume, νέα symbols, Light mode, όμορφα buttons |
 | 12-14 | 12 expiries, bilingual, preset guide, Analysis modal |
 | 15-17A | Hints, Capital, Prob ITM, Execution, Warnings |
-| 18 | Wider grid (63%) |
+| 18 | Wider grid (63%), narrower chart (37%) |
 | 19 | Greeks (Delta, Gamma, Theta, Vega) |
-| 20 | 0.1 BTC contract + Options-Lab presentation |
+| 20 | 0.1 BTC contract size + Options-Lab presentation |
 | 21 | Live price in header + Outcomes για όλα τα presets |
 | 22A | Chain view grid + coin logos + sorting |
-| 22B | Analyze button + Modal (COMPLETE) |
+| 22B | Analyze button + Modal |
+| 23 | IV Chart (Volatility Smile) |
+| 24 | Educational Analyze Modal |
+| 25 | Professional UI (Inter + JetBrains Mono, pulsing dot) |
+| 26 | Save/Load strategies (localStorage αρχικά) |
+| 27 | Fixed AG Grid XSS warnings + grid improvements |
+| 28 | Postgres persistence + fix race condition σε delete/load + row selection click-anywhere |
 
 ---
 
@@ -296,12 +367,14 @@ Dark (default) / Light
 
 ## Επόμενα βήματα (candidates)
 
-1. IV chart (volatility smile) — Γράφημα IV ανά strike
-2. Save/load strategies — Αποθήκευση στρατηγικών
-3. Mobile UI — Βελτίωση για κινητά
-4. Volume στήλη στο chain view
-5. Greeks chart — Οπτικοποίηση Greeks
-6. Άλλα symbols
+1. Deploy στο Render με Postgres (Neon ή Render Postgres)
+2. Volume στήλη στο chain view
+3. Greeks chart (visualization)
+4. Περισσότερα symbols (AMZN, GOOGL, META, COIN, AMD, PLTR)
+5. Export/Import στρατηγικών (JSON)
+6. Watchlist (αγαπημένα symbols)
+7. Multi-user με authentication
+8. Alerts (ειδοποιήσεις όταν spot περάσει strike)
 
 ---
 
@@ -311,6 +384,14 @@ cd C:\Users\Administrator\projects\options-v2
 .venv\Scripts\Activate.ps1
 python app.py
 http://127.0.0.1:8051
+
+### Πρώτη φορά setup
+
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+# Φτιάξε .env με τα DB credentials
+python -c "import db; db.init_db()"
 
 ## Πώς να κάνεις deploy
 
@@ -329,17 +410,20 @@ git checkout <hash>
 ## Τελευταία κατάσταση (checkpoint)
 
 - Chain view grid (Strike κέντρο, Calls αριστερά, Puts δεξιά)
-- Live price με coin logos
+- Row selection με click anywhere
+- Live price με coin logos + pulsing dot
 - Sorting σε όλες τις στήλες
-- Bid πράσινο / Ask κόκκινο / Strike χρυσό
-- BTC, ETH, AAPL, SPY, TSLA, NVDA, MSFT, QQQ
+- 8 symbols (BTC, ETH, AAPL, SPY, TSLA, NVDA, MSFT, QQQ)
 - 12 expiries
-- Multi-leg + presets
+- Multi-leg + 4 presets
 - Greeks, Capital, Prob ITM
+- Educational Analyze modal
+- IV Chart modal (Volatility Smile)
+- Save/Load/Delete strategies με Postgres
 - Execution Instructions + Warnings + Outcomes
-- Analyze modal με 4 Add buttons
 - Bilingual (EL/EN)
-- Dark/Light
+- Dark/Light theme
+- Professional UI (Inter + JetBrains Mono)
 - Deployed στο Render
 
-Status: COMPLETE (22B)
+Status: COMPLETE (Stage 28)
