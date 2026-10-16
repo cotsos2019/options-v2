@@ -1,58 +1,75 @@
-# Options Dashboard v2
-
+Options Dashboard v2
 Interactive options analytics dashboard — crypto (Deribit, live) + stocks (yfinance, delayed).
 
-Built with **Dash** + **Plotly** + **AG Grid** + **PostgreSQL**.
+Built with Dash + Plotly + AG Grid + PostgreSQL.
 
-![Python](https://img.shields.io/badge/Python-3.12-blue)
-![Dash](https://img.shields.io/badge/Dash-4.x-green)
-![Postgres](https://img.shields.io/badge/PostgreSQL-16-blue)
+https://img.shields.io/badge/Python-3.12-blue
+https://img.shields.io/badge/Dash-4.x-green
+https://img.shields.io/badge/PostgreSQL-16-blue
 
----
+Features
+📊 Chain View Grid
+Strike στη μέση (χρυσό), Calls αριστερά, Puts δεξιά
 
-## Features
+C Bid / C Ask / C IV / C Δ και P Δ / P IV / P Ask / P Bid
 
-### 📊 Chain View Grid
-- Strike στη μέση (χρυσό), Calls αριστερά, Puts δεξιά
-- C Bid / C Ask / C IV / C Δ και P Δ / P IV / P Ask / P Bid
-- Row selection με click anywhere
-- Sorting σε όλες τις στήλες (1x asc, 2x desc, 3x clear)
-- Mono font για νούμερα (JetBrains Mono)
+Row selection με click anywhere
 
-### 💰 Live Prices
-- Crypto: live από Deribit
-- Stocks: delayed από yfinance
-- Pulsing dot + coin logos
-- Auto-refresh κάθε 10 δευτερόλεπτα
+Sorting σε όλες τις στήλες (1x asc, 2x desc, 3x clear)
 
-### 🎯 Multi-leg Strategy Builder
-- **Presets**: Covered Call, Call Spread, Iron Condor, Straddle
-- **Manual**: + LONG / + SHORT / + Underlying
-- Real-time payoff chart
-- Greeks (Delta, Gamma, Theta, Vega)
-- Capital requirements, Prob ITM
+Mono font για νούμερα (JetBrains Mono)
 
-### 📖 Educational Analyze Modal
-- Τι είναι το option (CALL vs PUT + moneyness ITM/OTM/ATM)
-- Τρέχουσα κατάσταση (intrinsic, time value, break-even)
-- Πίνακας δεδομένων με tooltips
-- Παραδείγματα σεναρίων
-- Greeks explanations
-- 4 κουμπιά (BUY/SELL CALL/PUT) με εξηγήσεις
+💰 Live Prices
+Crypto: live από Deribit
 
-### 📈 IV Chart (Volatility Smile)
-- IV per strike
-- Spot line
+Stocks: delayed από yfinance
 
-### 💾 Save / Load Strategies
-- **PostgreSQL persistence** — δεν χάνονται ποτέ
-- Αποθήκευση με όνομα
-- Φόρτωση / Διαγραφή
-- Multi-strategy support
+Pulsing dot + coin logos
 
-### 🌍 Bilingual + Theme
-- Ελληνικά / Αγγλικά (EL / EN)
-- Dark / Light mode
+Auto-refresh κάθε 10 δευτερόλεπτα
+
+🎯 Multi-leg Strategy Builder
+Presets: Covered Call, Call Spread, Iron Condor, Straddle
+
+Manual: + LONG / + SHORT / + Underlying
+
+Real-time payoff chart
+
+Greeks (Delta, Gamma, Theta, Vega)
+
+Capital requirements, Prob ITM
+
+📖 Educational Analyze Modal
+Τι είναι το option (CALL vs PUT + moneyness ITM/OTM/ATM)
+
+Τρέχουσα κατάσταση (intrinsic, time value, break-even)
+
+Πίνακας δεδομένων με tooltips
+
+Παραδείγματα σεναρίων
+
+Greeks explanations
+
+4 κουμπιά (BUY/SELL CALL/PUT) με εξηγήσεις
+
+📈 IV Chart (Volatility Smile)
+IV per strike
+
+Spot line
+
+💾 Save / Load Strategies
+PostgreSQL persistence — δεν χάνονται ποτέ
+
+Αποθήκευση με όνομα
+
+Φόρτωση / Διαγραφή
+
+Multi-strategy support
+
+🌍 Bilingual + Theme
+Ελληνικά / Αγγλικά (EL / EN)
+
+Dark / Light mode
 
 ---
 
@@ -72,48 +89,39 @@ Built with **Dash** + **Plotly** + **AG Grid** + **PostgreSQL**.
 ## Quick Start (Local)
 
 ### 1. Clone
-
+```bash
 git clone https://github.com/cotsos2019/options-v2.git
 cd options-v2
-
-### 2. Virtual environment
-
+2. Virtual environment
+bash
 python -m venv .venv
-.venv\Scripts\Activate.ps1
-source .venv/bin/activate
-
-### 3. Install
-
+.venv\Scripts\Activate.ps1    # Windows
+# source .venv/bin/activate    # Linux/Mac
+3. Install
+bash
 pip install -r requirements.txt
-
-### 4. PostgreSQL setup
-
+4. PostgreSQL setup
+bash
 psql -U postgres
 CREATE DATABASE options_db;
 \q
-
-### 5. Create .env
-
+5. Create .env
+text
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=options_db
 DB_USER=postgres
 DB_PASSWORD=your_password
-
-### 6. Init DB
-
+6. Init DB
+bash
 python -c "import db; db.init_db()"
-
-### 7. Run
-
+7. Run
+bash
 python app.py
+Open http://127.0.0.1:8051
 
-Open **http://127.0.0.1:8051**
-
----
-
-## Project Structure
-
+Project Structure
+text
 options-v2/
 ├── app.py
 ├── db.py
@@ -124,13 +132,10 @@ options-v2/
 ├── NOTES_FOR_DEVELOPER.md
 ├── START_HERE.md
 └── README.md
+Supported Symbols
+Crypto (live — Deribit)
 
----
-
-## Supported Symbols
-
-**Crypto (live — Deribit)**
-- BTC ₿, ETH Ξ
+BTC ₿, ETH Ξ
 
 **Stocks (delayed — yfinance)**
 - AAPL, SPY, TSLA, NVDA, MSFT, QQQ
